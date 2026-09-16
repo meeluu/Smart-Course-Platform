@@ -1,0 +1,97 @@
+/* ============================================================================
+   设计令牌 · 「深海读数」世界
+   ----------------------------------------------------------------------------
+   场景：学生在实验室大屏或笔记本电脑前、室内照明下，连续数小时研读课件、
+   跑实验、核验规范。因此底色不是纯黑，而是一层有色的深海水体——玻璃只有在
+   有色光场里才成立；正文则靠冷白高对比承载长时阅读。
+   强调色只有一族：青蓝读数光。所有"正在发生"的东西（当前讲次、引用出处、
+   掌握度）才允许发光，其余一律退到水体里。
+   ========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- 光场：由深到浅的四个水体层次 ---- */
+  --void: #04080f;
+  --abyss: #060c17;
+  --substrate: #0a1322;
+  --raise: #0e1a2c;
+
+  /* ---- 玻璃：镜面描边 + 半透明填充，不使用投影 ---- */
+  --glass: rgba(146, 190, 236, 0.05);
+  --glass-hi: rgba(146, 190, 236, 0.088);
+  --glass-press: rgba(146, 190, 236, 0.14);
+  --hairline: rgba(152, 198, 240, 0.13);
+  --hairline-hi: rgba(152, 198, 240, 0.26);
+
+  /* ---- 读数光：唯一强调色族 ---- */
+  --cyan: #35e0f0;
+  --azure: #4aa8ff;
+  --indigo: #6d7bff;
+  --cyan-deep: #1ecbdd;
+  --cyan-dim: #1b6f7e;
+  --grad-accent: linear-gradient(135deg, #35e0f0 0%, #4aa8ff 55%, #6d7bff 100%);
+  --grad-lit: linear-gradient(180deg, rgba(53, 224, 240, 0.14), rgba(109, 123, 255, 0.04));
+  --glow-cyan: 0 0 0 1px rgba(53, 224, 240, 0.35), 0 0 28px -6px rgba(53, 224, 240, 0.45);
+
+  /* ---- 文本：全部带蓝相，绝不用纯灰 ---- */
+  --ink: #e8f1fb; /* 正文 */
+  --ink-soft: #b3c7de; /* 次级 */
+  --ink-mute: #7d94b0; /* 辅助，6.2:1 */
+  --ink-faint: #6b82a0; /* 标签，4.8:1 */
+  --ink-on-accent: #04202b; /* 青蓝底上的文字 */
+
+  /* ---- 语义色：降饱和以服从冷色场 ---- */
+  --ok: #43d9a3;
+  --warn: #f2b455;
+  --risk: #ff7a8a;
+
+  /* ---- 字体：拉丁与数字用 Sora（有几何性格），中文走系统黑体 ----
+     中文字体族必须排在 ui-sans-serif / system-ui 这类通用族之前，否则
+     Windows 上会回退到衬线的宋体，标题的重量与正文脱节。 */
+  --font-display:
+    'Sora Variable', 'Sora', 'HarmonyOS Sans SC', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
+  --font-body:
+    'HarmonyOS Sans SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', ui-sans-serif,
+    system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:
+    ui-monospace, 'Cascadia Mono', 'JetBrains Mono', 'SFMono-Regular', Consolas,
+    'Liberation Mono', monospace;
+
+  /* ---- 尺度 ---- */
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-pill: 999px;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+  --sp-9: 96px;
+
+  --shell-max: 1560px;
+  --topbar-h: 60px;
+  --rail-w: 300px;
+
+  /* ---- 动效：一个统一的加速曲线 ---- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-1: 140ms;
+  --dur-2: 240ms;
+  --dur-3: 420ms;
+  --dur-4: 900ms;
+
+  /* ---- 层级 ---- */
+  --z-bg: 0;
+  --z-content: 1;
+  --z-sticky: 40;
+  --z-topbar: 60;
+  --z-overlay: 80;
+}
