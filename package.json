@@ -1,0 +1,33 @@
+{
+  "name": "sdubigdatacourse",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "serve": "set NODE_OPTIONS=--openssl-legacy-provider && vue-cli-service serve",
+    "build": "set NODE_OPTIONS=--openssl-legacy-provider && vue-cli-service build",
+    "git": "set NODE_OPTIONS=--openssl-legacy-provider && cd dist&&rm -rf .git&&git init&&git remote add origin git@github.com:SDUBigDataCourse/sdubigdatacourse.github.io.git&&git add .&&git commit -m \"update pages\"&&git push --set-upstream origin master --force&&cd .."
+  },
+
+  "dependencies": {
+    "core-js": "^2.6.5",
+    "github-markdown-css": "^3.0.1",
+    "han-css": "^3.3.0",
+    "iview": "^3.5.1",
+    "markdown-it-katex": "^2.0.3",
+    "vue": "^2.6.10",
+    "vue-i18n": "^8.21.1",
+    "vue-md-loader": "^1.1.0",
+    "vue-router": "^3.0.3",
+    "vuex": "^3.0.1"
+  },
+  "devDependencies": {
+    "@vue/cli-plugin-babel": "^3.11.0",
+    "@vue/cli-service": "^3.11.0",
+    "vue-template-compiler": "^2.6.10"
+  },
+  "main": "index.js",
+  "repository": "https://github.com/SDUBigDataCourse/ghPagesScaffold.git",
+  "author": "yuyongcan <1686806870@qq.com>",
+  "license": "MIT"
+
+}
