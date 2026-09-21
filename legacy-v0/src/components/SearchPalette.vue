@@ -4,21 +4,20 @@ import { useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import { useCourseStore } from '@/stores/course'
 import { useViewerStore } from '@/stores/viewer'
-import { useQaStore } from '@/stores/qa'
-import { allLessons } from '@/data/course'
+import { useProjectStore, type ActionKey } from '@/stores/project'
 import { searchBlocks } from '@/utils/content'
 import { kindLabel } from '@/utils/resourceMeta'
 
 /**
- * 全局搜索
+ * 全局检索
  * ----------------------------------------------------------------------------
- * 同时检索三类对象：学习路径（讲次与资源）、课程证据（知识库分块）、历史问答。
- * 结果按对象类型分组，回车执行第一项。
+ * 一次检索三类对象：项目地图节点、关键决定、课程知识。
+ * 课程知识只作为「可能相关的材料」出现，点开是原文核验，不会直接给答案。
  */
 const router = useRouter()
 const course = useCourseStore()
 const viewer = useViewerStore()
-const qa = useQaStore()
+const project = useProjectStore()
 
 const keyword = ref('')
 const cursor = ref(0)
@@ -26,126 +25,78 @@ const input = ref<HTMLInputElement | null>(null)
 
 interface Hit {
   id: string
-  group: 'par' | 'material' | 'evidence' | 'thread'
+  group: 'action' | 'node' | 'decision' | 'knowledge'
   icon: string
   title: string
   meta: string
   run: () => void
 }
 
-const QUICK_QUESTIONS = [
-  '最终项目提交的系统演示需要包含哪些模块？',
-  '5C 数据质量维度分别是什么？',
-  'K-Means 聚类这一节我该按什么顺序复习？',
+const QUICK_ACTIONS: { key: ActionKey; label: string; icon: string }[] = [
+  { key: 'stuck', label: '我卡住了', icon: 'compass' },
+  { key: 'drift', label: '检查我们有没有跑偏', icon: 'split' },
+  { key: 'next', label: '下一步做什么', icon: 'flag' },
+  { key: 'teacher', label: '准备问老师', icon: 'send' },
 ]
-
-const RECENT_LESSONS = ['L04', 'L06', 'L13']
-
-const recentLessons = computed(() =>
-  RECENT_LESSONS.map((id) => allLessons.find((lesson) => lesson.id === id)).filter(
-    (lesson): lesson is (typeof allLessons)[number] => Boolean(lesson),
-  ),
-)
 
 const results = computed<Hit[]>(() => {
   const query = keyword.value.trim().toLowerCase()
   if (!query) return []
   const hits: Hit[] = []
 
-  // 学习路径：讲次
-  allLessons
-    .filter(
-      (lesson) =>
-        lesson.title.toLowerCase().includes(query) ||
-        lesson.summary.toLowerCase().includes(query) ||
-        `第 ${lesson.index} 讲`.includes(query),
+  project.nodes
+    .filter((node) => `${node.title} ${node.detail}`.toLowerCase().includes(query))
+    .slice(0, 5)
+    .forEach((node) =>
+      hits.push({
+        id: `node-${node.id}`,
+        group: 'node',
+        icon: 'graph',
+        title: node.title,
+        meta: `项目地图 · ${node.detail.slice(0, 30)}…`,
+        run: () => void router.push({ path: '/map', query: { node: node.id } }),
+      }),
     )
+
+  project.decisions
+    .filter((item) => `${item.chose} ${item.why}`.toLowerCase().includes(query))
     .slice(0, 4)
-    .forEach((lesson) =>
+    .forEach((item) =>
       hits.push({
-        id: `lesson-${lesson.id}`,
-        group: 'par',
-        icon: 'route',
-        title: `第 ${lesson.index} 讲 · ${lesson.title}`,
-        meta: `${lesson.date} · ${lesson.resources.length} 份材料`,
-        run: () => void router.push({ path: '/content', query: { lesson: lesson.id } }),
+        id: `dec-${item.id}`,
+        group: 'decision',
+        icon: 'check',
+        title: item.chose,
+        meta: `关键决定 · ${item.why.slice(0, 30)}…`,
+        run: () => void router.push({ path: '/log' }),
       }),
     )
 
-  // 学习路径：资源
-  allLessons
-    .flatMap((lesson) => lesson.resources.map((resource) => ({ lesson, resource })))
-    .filter(
-      ({ resource }) =>
-        resource.title.toLowerCase().includes(query) || resource.purpose.toLowerCase().includes(query),
-    )
-    .slice(0, 6)
-    .forEach(({ lesson, resource }) =>
-      hits.push({
-        id: `res-${resource.id}`,
-        group: 'material',
-        icon: 'page',
-        title: resource.title,
-        meta: `${kindLabel(resource.kind)} · 第 ${lesson.index} 讲 · p.${resource.page}`,
-        run: () => void router.push({ path: '/content', query: { lesson: lesson.id, resource: resource.id } }),
-      }),
-    )
-
-  // 课程证据：知识库分块
-  searchBlocks(query, 8).forEach(({ block, doc }) => {
-    if (doc.kind === 'experience') {
-      hits.push({
-        id: `doc-${doc.docId}`,
-        group: 'evidence',
-        icon: 'layers',
-        title: doc.title,
-        meta: `经验材料 · ${doc.term ?? ''} · ${doc.purpose}`,
-        run: () => viewer.openEvidence(doc.docId),
-      })
-      return
-    }
+  searchBlocks(query, 8).forEach(({ block, doc }) =>
     hits.push({
-      id: `block-${block.id}`,
-      group: 'evidence',
-      icon: 'anchor',
-      title: block.heading,
-      meta: `${doc.title} · p.${block.page}`,
+      id: `kb-${block.id}`,
+      group: 'knowledge',
+      icon: 'book',
+      title: doc.kind === 'experience' ? doc.title : block.heading,
+      meta: `${kindLabel(doc.kind)} · ${doc.title} · p.${block.page}`,
       run: () => viewer.openEvidence(block.id),
-    })
-  })
-
-  // 历史问答
-  qa.threads
-    .filter((thread) => thread.question.toLowerCase().includes(query))
-    .slice(0, 4)
-    .forEach((thread) =>
-      hits.push({
-        id: `thread-${thread.id}`,
-        group: 'thread',
-        icon: 'chat',
-        title: thread.question,
-        meta: `历史问答 · ${thread.at}`,
-        run: () => {
-          qa.replay(thread)
-          void router.push({ path: '/qa', query: { lesson: thread.lessonId } })
-        },
-      }),
-    )
+    }),
+  )
 
   return hits
 })
 
-const groups = computed(() => {
-  const order: Array<{ key: Hit['group']; label: string }> = [
-    { key: 'par', label: '学习路径' },
-    { key: 'material', label: '课程材料' },
-    { key: 'evidence', label: '课程证据' },
-    { key: 'thread', label: '历史问答' },
-  ]
-  return order
-    .map((entry) => ({ ...entry, items: results.value.filter((hit) => hit.group === entry.key) }))
-    .filter((entry) => entry.items.length > 0)
-})
+const GROUPS: { key: Hit['group']; label: string }[] = [
+  { key: 'node', label: '项目地图' },
+  { key: 'decision', label: '关键决定' },
+  { key: 'knowledge', label: '课程知识' },
+]
+
+const groups = computed(() =>
+  GROUPS.map((entry) => ({ ...entry, items: results.value.filter((hit) => hit.group === entry.key) })).filter(
+    (entry) => entry.items.length > 0,
+  ),
+)
 
 const flat = computed(() => groups.value.flatMap((group) => group.items))
 
@@ -168,6 +119,11 @@ function move(step: number) {
   cursor.value = (cursor.value + step + size) % size
 }
 
+function runAction(key: ActionKey) {
+  project.openAction(key)
+  close()
+}
+
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') close()
   if (event.key === 'ArrowDown') {
@@ -184,9 +140,7 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-watch(keyword, () => {
-  cursor.value = 0
-})
+watch(keyword, () => (cursor.value = 0))
 
 watch(
   () => course.paletteOpen,
@@ -196,30 +150,19 @@ watch(
     input.value?.focus()
   },
 )
-
-function quickAsk(question: string) {
-  void qa.ask(question)
-  void router.push({ path: '/qa' })
-  close()
-}
-
-function goLesson(lessonId: string) {
-  void router.push({ path: '/content', query: { lesson: lessonId } })
-  close()
-}
 </script>
 
 <template>
   <Transition name="fade">
     <div v-if="course.paletteOpen" class="scrim" @click.self="close">
-      <div class="palette glass--blur" role="dialog" aria-label="全局搜索" @keydown="onKeydown">
+      <div class="palette glass--blur" role="dialog" aria-label="全局检索">
         <div class="palette__input">
           <AppIcon name="search" :size="17" />
           <input
             ref="input"
             v-model="keyword"
             type="text"
-            placeholder="检索讲次、课件、实验手册、规范、经验材料与历史问答…"
+            placeholder="检索项目地图节点、关键决定与课程知识…"
             autocomplete="off"
           />
           <button type="button" class="palette__close" aria-label="关闭" @click="close">
@@ -228,39 +171,24 @@ function goLesson(lessonId: string) {
         </div>
 
         <div class="palette__body">
-          <!-- 未输入：给出最近讲次与常见提问 -->
           <template v-if="!keyword.trim()">
             <section class="group">
-              <p class="label">继续学习</p>
+              <p class="label">直接开始</p>
               <button
-                v-for="item in recentLessons"
-                :key="item.id"
+                v-for="action in QUICK_ACTIONS"
+                :key="action.key"
                 type="button"
                 class="hit"
-                @click="goLesson(item.id)"
+                @click="runAction(action.key)"
               >
-                <AppIcon name="clock" :size="15" />
-                <span class="hit__title">第 {{ item.index }} 讲 · {{ item.title }}</span>
-              </button>
-            </section>
-
-            <section class="group">
-              <p class="label">可以这样问</p>
-              <button
-                v-for="question in QUICK_QUESTIONS"
-                :key="question"
-                type="button"
-                class="hit"
-                @click="quickAsk(question)"
-              >
-                <AppIcon name="spark" :size="15" />
-                <span class="hit__title">{{ question }}</span>
+                <AppIcon :name="action.icon" :size="15" />
+                <span class="hit__title">{{ action.label }}</span>
               </button>
             </section>
           </template>
 
           <template v-else-if="flat.length === 0">
-            <p class="palette__none">课程材料中未找到与该关键词相关的内容。</p>
+            <p class="palette__none">项目状态与课程材料里都没有匹配的内容。</p>
           </template>
 
           <template v-else>
@@ -303,7 +231,7 @@ function goLesson(lessonId: string) {
   display: flex;
   justify-content: center;
   padding-top: 12vh;
-  background: rgba(4, 8, 15, 0.66);
+  background: var(--scrim);
 }
 
 .palette {
@@ -332,6 +260,10 @@ function goLesson(lessonId: string) {
   color: var(--ink);
   font-size: 0.95rem;
   font-family: var(--font-body);
+}
+
+.palette__input input:focus {
+  outline: none;
 }
 
 .palette__input input::placeholder {
@@ -380,7 +312,7 @@ function goLesson(lessonId: string) {
 }
 
 .hit.is-cursor {
-  background: rgba(53, 224, 240, 0.1);
+  background: var(--accent-tint);
   color: var(--ink);
 }
 

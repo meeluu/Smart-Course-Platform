@@ -158,7 +158,7 @@ function jumpTo(block: EvidenceBlock) {
 }
 
 .viewer__outline-item.is-active {
-  background: rgba(53, 224, 240, 0.1);
+  background: var(--accent-tint);
   color: var(--cyan);
 }
 
@@ -168,7 +168,7 @@ function jumpTo(block: EvidenceBlock) {
 }
 
 .viewer__outline-item.is-active .viewer__outline-page {
-  color: rgba(53, 224, 240, 0.7);
+  color: var(--accent);
 }
 
 .viewer__outline-label {

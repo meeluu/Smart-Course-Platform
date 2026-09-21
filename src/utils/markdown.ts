@@ -1,4 +1,5 @@
-import MarkdownIt from 'markdown-it'
+// markdown-it 15 自带类型：默认导出是可 new 的构造函数，实例类型需要单独按类型引入
+import MarkdownItCtor, { type MarkdownIt } from 'markdown-it'
 import hljs from 'highlight.js/lib/core'
 import katex from 'katex'
 import DOMPurify from 'dompurify'
@@ -128,7 +129,7 @@ function katexPlugin(md: MarkdownIt): void {
     })}</div>\n`
 }
 
-const md = new MarkdownIt({
+const md: MarkdownIt = new MarkdownItCtor({
   html: false,
   linkify: true,
   breaks: false,

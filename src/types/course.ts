@@ -1,10 +1,10 @@
 /**
- * 平台领域模型
+ * 课程资料库领域模型
  * ----------------------------------------------------------------------------
- * 术语与需求文档对齐：
- *  - 证据块（EvidenceBlock）是知识库的最小可引用单位，携带「文档 / 章节 / 页码」元数据；
- *  - 资源（Resource）是学习路径上的锚点，指向证据块，并按四种类型聚合；
- *  - 引用（Citation）是回答与画像建议回指证据块的唯一通道。
+ * v1 里课程知识只出现在一个地方：步骤详情页的「推荐资料」。
+ * 所以这里只保留资料库自身需要的两个概念：
+ *  - 证据块（EvidenceBlock）是最小可引用单位，携带「文档 / 章节 / 页码」；
+ *  - 文档（MaterialDoc）是资料的载体，内置证据块或由真实 markdown 解析得到。
  */
 
 /** 资源类型：课件 / 实验手册 / 项目规范 / 经验材料 */
@@ -13,7 +13,7 @@ export type ResourceKind = 'slides' | 'lab' | 'spec' | 'experience'
 /** 文档类型：与资源类型一致，另有评分细则与常见问答两类内部文档 */
 export type DocKind = ResourceKind | 'grading' | 'faq'
 
-/** 证据块：知识库分块后的最小可溯源单位 */
+/** 证据块：资料分块后的最小可引用单位 */
 export interface EvidenceBlock {
   id: string
   /** 所属文档 */
@@ -26,7 +26,7 @@ export interface EvidenceBlock {
   text: string
 }
 
-/** 知识库文档 */
+/** 资料库文档 */
 export interface MaterialDoc {
   docId: string
   title: string
@@ -39,8 +39,6 @@ export interface MaterialDoc {
   source: 'authored' | 'markdown'
   /** markdown 文档在 src/content/experience 下的相对路径 */
   file?: string
-  /** 缩略图（经验材料用于卡片） */
-  cover?: string
   /** 所属学期，经验材料使用 */
   term?: string
   /** 一句话说明这份材料能回答什么问题 */
@@ -48,58 +46,14 @@ export interface MaterialDoc {
   blocks: EvidenceBlock[]
 }
 
-/** 学习路径上的资源锚点 */
-export interface Resource {
-  id: string
-  kind: ResourceKind
-  title: string
-  docId: string
-  /** 指向证据块；经验材料为整篇文档，此字段缺省 */
-  blockId?: string
-  /** 定位信息（页码 / 节），来自证据块 */
-  page: string
-  /** 这份材料在这一讲里解决什么问题 */
-  purpose: string
-  /** 锚点导航用的章节标签 */
-  anchors: string[]
-}
+/* ----------------------------------------------------- 课程公开信息 */
 
-/** 讲次 */
-export interface Lesson {
-  id: string
-  /** 第几讲 */
-  index: number
-  title: string
-  date: string
-  term: string
-  summary: string
-  /** 涉及的知识点 id */
-  knowledgePoints: string[]
-  resources: Resource[]
-}
+/**
+ * 授课团队 / 考核构成 / 教材与参考书。
+ * v1 没有对应的页面，但内容仍然有效，保留在资料库里供后续学期使用；
+ * 目前没有页面引用，构建时会被 tree-shaking 去掉。
+ */
 
-/** 模块 */
-export interface Module {
-  id: string
-  index: number
-  title: string
-  /** 覆盖讲次，例如「第 1–4 讲」 */
-  span: string
-  /** 这个模块要建立什么能力 */
-  thesis: string
-  lessons: Lesson[]
-}
-
-/** 知识点：能力画像与资源路径之间的映射键 */
-export interface KnowledgePoint {
-  id: string
-  name: string
-  lessonId: string
-  /** 掌握度偏低时建议回看的资源 */
-  resourceId: string
-}
-
-/** 课程考核构成 */
 export interface GradeItem {
   name: string
   weight: number
@@ -108,7 +62,6 @@ export interface GradeItem {
   blockId: string
 }
 
-/** 教材与参考资料 */
 export interface Reference {
   id: number
   name: string
@@ -118,7 +71,6 @@ export interface Reference {
   year: number
 }
 
-/** 授课团队 */
 export interface Member {
   id: string
   name: string

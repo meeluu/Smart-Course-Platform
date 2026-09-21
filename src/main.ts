@@ -1,12 +1,10 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { ElConfigProvider, ElOption, ElSelect, ElTabPane, ElTabs } from 'element-plus'
-import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 
-// 字体与第三方样式（顺序在应用样式之前，便于覆盖）
-import '@fontsource-variable/sora'
+// 第三方样式（顺序在应用样式之前，便于覆盖）
+// 字体统一走系统栈（-apple-system / SF Pro / 苹方），不再加载外部字体
 import 'element-plus/dist/index.css'
-import 'element-plus/theme-chalk/dark/css-vars.css'
 import 'katex/dist/katex.min.css'
 
 import '@/styles/tokens.css'

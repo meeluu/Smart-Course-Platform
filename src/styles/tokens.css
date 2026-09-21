@@ -1,69 +1,95 @@
 /* ============================================================================
-   设计令牌 · 「深海读数」世界
+   设计令牌 · 「纸上系统」
    ----------------------------------------------------------------------------
-   场景：学生在实验室大屏或笔记本电脑前、室内照明下，连续数小时研读课件、
-   跑实验、核验规范。因此底色不是纯黑，而是一层有色的深海水体——玻璃只有在
-   有色光场里才成立；正文则靠冷白高对比承载长时阅读。
-   强调色只有一族：青蓝读数光。所有"正在发生"的东西（当前讲次、引用出处、
-   掌握度）才允许发光，其余一律退到水体里。
+   参考 iOS / macOS 的原生观感：浅灰分组底 + 纯白卡片 + 发丝分隔线，
+   不用渐变、不用发光、不用投影承担层次。层次只由三样东西建立：
+   底色差、发丝线、以及字号与字重的阶梯。
+   强调色只有一支系统蓝，且只用于"可点 / 已选中 / 正在发生"。
    ========================================================================== */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  /* ---- 光场：由深到浅的四个水体层次 ---- */
-  --void: #04080f;
-  --abyss: #060c17;
-  --substrate: #0a1322;
-  --raise: #0e1a2c;
+  /* ---- 底色三层：页面 / 卡片 / 卡片内的次级面 ---- */
+  --page: #f2f2f7;
+  --surface: #ffffff;
+  --surface-2: #f7f7fa;
 
-  /* ---- 玻璃：镜面描边 + 半透明填充，不使用投影 ---- */
-  --glass: rgba(146, 190, 236, 0.05);
-  --glass-hi: rgba(146, 190, 236, 0.088);
-  --glass-press: rgba(146, 190, 236, 0.14);
-  --hairline: rgba(152, 198, 240, 0.13);
-  --hairline-hi: rgba(152, 198, 240, 0.26);
+  /* ---- 兼容旧令牌名（组件仍在使用） ---- */
+  --void: #f2f2f7;
+  --abyss: #ffffff;
+  --substrate: #f7f7fa;
+  --raise: #ffffff;
 
-  /* ---- 读数光：唯一强调色族 ---- */
-  --cyan: #35e0f0;
-  --azure: #4aa8ff;
-  --indigo: #6d7bff;
-  --cyan-deep: #1ecbdd;
-  --cyan-dim: #1b6f7e;
-  --grad-accent: linear-gradient(135deg, #35e0f0 0%, #4aa8ff 55%, #6d7bff 100%);
-  --grad-lit: linear-gradient(180deg, rgba(53, 224, 240, 0.14), rgba(109, 123, 255, 0.04));
-  --glow-cyan: 0 0 0 1px rgba(53, 224, 240, 0.35), 0 0 28px -6px rgba(53, 224, 240, 0.45);
+  /* ---- 填充与分隔 ---- */
+  --fill: rgba(120, 120, 128, 0.08);
+  --fill-2: rgba(120, 120, 128, 0.13);
+  --fill-3: rgba(120, 120, 128, 0.18);
+  --glass: rgba(120, 120, 128, 0.08);
+  --glass-hi: rgba(120, 120, 128, 0.13);
+  --glass-press: rgba(120, 120, 128, 0.18);
+  --separator: rgba(60, 60, 67, 0.14);
+  --separator-strong: rgba(60, 60, 67, 0.26);
+  --hairline: rgba(60, 60, 67, 0.14);
+  --hairline-hi: rgba(60, 60, 67, 0.26);
 
-  /* ---- 文本：全部带蓝相，绝不用纯灰 ---- */
-  --ink: #e8f1fb; /* 正文 */
-  --ink-soft: #b3c7de; /* 次级 */
-  --ink-mute: #7d94b0; /* 辅助，6.2:1 */
-  --ink-faint: #6b82a0; /* 标签，4.8:1 */
-  --ink-on-accent: #04202b; /* 青蓝底上的文字 */
+  /* ---- 唯一的强调色：系统蓝 ---- */
+  --accent: #007aff;
+  --accent-press: #0062cc;
+  /* 小字号蓝字用更深的一档，保证正文对比度 ≥4.5:1 */
+  --accent-ink: #0059c7;
+  --accent-tint: rgba(0, 122, 255, 0.1);
+  --accent-tint-2: rgba(0, 122, 255, 0.16);
+  --accent-line: rgba(0, 122, 255, 0.4);
+  --accent-line-soft: rgba(0, 122, 255, 0.26);
+  --cyan: #007aff;
+  --cyan-deep: #0062cc;
+  --cyan-dim: #a8cfff;
+  --azure: #007aff;
+  --indigo: #5856d6;
+  /* 旧令牌：曾经是渐变，现在退化为纯色，因此所有渐变一次性消失 */
+  --grad-accent: #007aff;
+  --grad-lit: none;
 
-  /* ---- 语义色：降饱和以服从冷色场 ---- */
-  --ok: #43d9a3;
-  --warn: #f2b455;
-  --risk: #ff7a8a;
+  /* ---- 文本：四档中性灰，全部达标 ---- */
+  --ink: #1c1c1e; /* 17:1 */
+  --ink-soft: #3a3a3c; /* 11:1 */
+  --ink-mute: #55555a; /* 7.0:1 */
+  --ink-faint: #6e6e73; /* 5.2:1 */
+  --ink-on-accent: #ffffff;
 
-  /* ---- 字体：拉丁与数字用 Sora（有几何性格），中文走系统黑体 ----
-     中文字体族必须排在 ui-sans-serif / system-ui 这类通用族之前，否则
-     Windows 上会回退到衬线的宋体，标题的重量与正文脱节。 */
+  /* ---- 语义色：用可读的深色档，只在小面积出现 ---- */
+  --ok: #248a3d;
+  --ok-tint: rgba(36, 138, 61, 0.1);
+  --ok-line: rgba(36, 138, 61, 0.4);
+  --warn: #c93400;
+  --warn-tint: rgba(201, 52, 0, 0.08);
+  --warn-line: rgba(201, 52, 0, 0.32);
+  --risk: #d70015;
+  --risk-tint: rgba(215, 0, 21, 0.08);
+  --risk-line: rgba(215, 0, 21, 0.32);
+
+  /* ---- 浮层 ---- */
+  --scrim: rgba(0, 0, 0, 0.28);
+  --sheet: rgba(255, 255, 255, 0.86);
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-2: 0 12px 40px rgba(0, 0, 0, 0.14);
+  --glow-cyan: none;
+
+  /* ---- 字体：全站系统字体栈，iOS 优先 ---- */
   --font-display:
-    'Sora Variable', 'Sora', 'HarmonyOS Sans SC', 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
+    -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI Variable Display', 'Segoe UI',
+    'PingFang SC', 'HarmonyOS Sans SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   --font-body:
-    'HarmonyOS Sans SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', ui-sans-serif,
-    system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono:
-    ui-monospace, 'Cascadia Mono', 'JetBrains Mono', 'SFMono-Regular', Consolas,
-    'Liberation Mono', monospace;
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang SC', 'HarmonyOS Sans SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, 'Liberation Mono', monospace;
 
   /* ---- 尺度 ---- */
   --r-xs: 6px;
   --r-sm: 8px;
-  --r-md: 12px;
-  --r-lg: 16px;
+  --r-md: 10px;
+  --r-lg: 14px;
   --r-pill: 999px;
 
   --sp-1: 4px;
@@ -76,17 +102,18 @@
   --sp-8: 64px;
   --sp-9: 96px;
 
-  --shell-max: 1560px;
-  --topbar-h: 60px;
-  --rail-w: 300px;
+  --shell-max: 1200px;
+  --topbar-h: 52px;
+  --rail-w: 280px;
 
-  /* ---- 动效：一个统一的加速曲线 ---- */
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  /* ---- 动效：iOS 的手感来自短距离 + 快出缓停 ---- */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --dur-1: 140ms;
-  --dur-2: 240ms;
-  --dur-3: 420ms;
-  --dur-4: 900ms;
+  --dur-2: 220ms;
+  --dur-3: 320ms;
+  --dur-4: 480ms;
 
   /* ---- 层级 ---- */
   --z-bg: 0;

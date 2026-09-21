@@ -1,10 +1,21 @@
 <script setup lang="ts">
-import { RouterView } from 'vue-router'
-import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
+import { watch } from 'vue'
+import { RouterView, useRoute } from 'vue-router'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import TopBar from '@/components/TopBar.vue'
-import SearchPalette from '@/components/SearchPalette.vue'
 import ViewerPanel from '@/components/ViewerPanel.vue'
-import { courseStats } from '@/data/course'
+import { useProjectStore } from '@/stores/project'
+import { useViewerStore } from '@/stores/viewer'
+
+const project = useProjectStore()
+const viewer = useViewerStore()
+const route = useRoute()
+
+// 切换页面时收起原文面板，避免遮挡新页面的第一屏
+watch(
+  () => route.fullPath,
+  () => viewer.close(),
+)
 </script>
 
 <template>
@@ -24,21 +35,21 @@ import { courseStats } from '@/data/course'
     <footer class="foot">
       <div class="foot__inner">
         <div class="foot__brand">
-          <p class="foot__name">《大数据分析实践》智慧课程平台</p>
+          <p class="foot__name">{{ project.meta.name }}</p>
           <p class="foot__meta">
-            山东大学 · 计算机科学与技术学院　|　国家级一流本科课程　|　课程知识库
-            {{ courseStats.docCount }} 份文档 / {{ courseStats.resourceCount }} 个资源锚点
+            {{ project.meta.team }} · 项目当前状态　|　{{ project.meta.phase }}　|　更新于
+            {{ project.meta.updatedAt }}
           </p>
         </div>
         <p class="foot__note">
-          当前为阶段一静态骨架：课程材料已按证据块入库，问答与能力画像为本地演示逻辑，
-          尚未接入检索与模型服务。
+          系统不替学生定答案，也不替老师确认需求。它只做三件事：把材料读成理解、把理解变成下一步、
+          把下一步变成证据——每一步都必须由学生确认。当前为结构演示数据，材料整理由规则抽取完成，
+          尚未接入真实模型服务。
         </p>
       </div>
     </footer>
 
     <ViewerPanel />
-    <SearchPalette />
   </el-config-provider>
 </template>
 
@@ -78,7 +89,7 @@ import { courseStats } from '@/data/course'
 }
 
 .foot__note {
-  max-width: 52ch;
+  max-width: 56ch;
   font-size: 0.76rem;
   line-height: 1.75;
   color: var(--ink-faint);

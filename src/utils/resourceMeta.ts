@@ -33,7 +33,10 @@ export const resourceKindMeta: Record<
 
 export const resourceKindOrder: ResourceKind[] = ['slides', 'lab', 'spec', 'experience']
 
-export const docKindMeta: Record<DocKind, { label: string; icon: string }> = {
+export const docKindMeta: Record<
+  DocKind,
+  { label: string; icon: string; hint?: string; question?: string }
+> = {
   ...resourceKindMeta,
   grading: { label: '评分细则', icon: 'check', hint: '成绩构成', question: '分数怎么算' },
   faq: { label: '常见问答', icon: 'chat', hint: '高频问题沉淀', question: '这个问题问过吗' },
