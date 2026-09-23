@@ -2,6 +2,8 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { MaterialType, Project, Template } from '@/types/platform'
 import { TEMPLATES, TOPICS } from '@/data/topics'
+// 论文方向只从这一个入口取：现在返回模板预置内容，接入后端后换实现即可，页面无需改动
+import { generateDirection, genericDirections, presetDirections } from '@/services/papers'
 
 /** 近 4 周的时间标签，与 mockup 一致 */
 export const WEEK_LABELS = ['8.31-9.6', '9.7-9.13', '9.14-9.20', '9.21-9.27']
@@ -92,26 +94,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           done: '确认数据来源或工具链可用，附验证记录。',
         },
       ],
-      papers: [
-        {
-          title: '该方向的方法综述',
-          meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
-          why: '先看综述建立全局图景。',
-          prompt: `请检索「${name}」相关方向的近年综述与代表论文：1) 主流方法分类与优缺点 2) 常用数据集 3) 开源实现。列出 5-8 篇及出处。`,
-        },
-        {
-          title: '该方向的数据获取与预处理',
-          meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
-          why: '为数据里程碑储备。',
-          prompt: `请介绍「${name}」项目常用的数据来源、格式与预处理工具链（Python），并说明常见的数据质量问题和处理方法。`,
-        },
-        {
-          title: '该方向的最新研究进展（2023-2025）',
-          meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
-          why: '了解前沿，避免方案过时。',
-          prompt: `请检索 2023-2025 年「${name}」方向的最新研究进展：1) 新方法与突破 2) 尚未解决的问题 3) 代表性团队。请附出处。`,
-        },
-      ],
+      // 通用论文方向搬到 services/papers.ts，这里不再内联
+      papers: genericDirections(name),
     }
   }
 
@@ -144,6 +128,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
     const project: Project = {
       ...JSON.parse(JSON.stringify(tpl)),
+      // 覆盖模板里的 papers：论文方向的唯一来源，便于日后换成后端接口
+      papers: presetDirections({ topic: input.topic, projectName: name }),
       name,
       group: `第 ${projects.value.length + 1} 组`,
       members: input.members.replace('人', '名成员'),
@@ -303,17 +289,14 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       return
     }
     const curMs = (project.ms.find((m) => m.s === 'cur') || { t: '当前阶段' }).t
-    const prompt =
-      `我正在做「${project.name}」项目，目前处于「${curMs}」阶段。` +
-      `请围绕「${topic.trim()}」检索相关文献：1) 该方向的经典综述与近 3 年最新进展 ` +
-      `2) 与项目当前阶段直接相关的方法细节 3) 公开数据集或开源实现。` +
-      '请列出 5 篇左右代表性论文，注明作者、年份、期刊/会议和可验证的出处链接。'
-
-    project.aiPapers.unshift({
-      title: topic.trim(),
-      meta: `AI 根据你的描述生成 · 结合「${project.short}」当前阶段：${curMs}`,
-      prompt,
-    })
+    project.aiPapers.unshift(
+      generateDirection({
+        projectName: project.name,
+        shortName: project.short,
+        currentMilestone: curMs,
+        ask: topic,
+      }),
+    )
     toast('AI 已生成专属检索提示词')
   }
 
