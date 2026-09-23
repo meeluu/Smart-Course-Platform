@@ -1,33 +1,39 @@
 {
-  "name": "sdubigdatacourse",
+  "name": "bigdata-course-platform",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
+  "description": "《大数据分析实践》项目推进平台 v1 —— 材料 → 理解 → 下一步 → 结果与证据",
   "scripts": {
-    "serve": "set NODE_OPTIONS=--openssl-legacy-provider && vue-cli-service serve",
-    "build": "set NODE_OPTIONS=--openssl-legacy-provider && vue-cli-service build",
-    "git": "set NODE_OPTIONS=--openssl-legacy-provider && cd dist&&rm -rf .git&&git init&&git remote add origin git@github.com:SDUBigDataCourse/sdubigdatacourse.github.io.git&&git add .&&git commit -m \"update pages\"&&git push --set-upstream origin master --force&&cd .."
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit",
+    "lint": "eslint . --fix",
+    "format": "prettier --write \"src/**/*.{ts,vue,css}\""
   },
-
   "dependencies": {
-    "core-js": "^2.6.5",
-    "github-markdown-css": "^3.0.1",
-    "han-css": "^3.3.0",
-    "iview": "^3.5.1",
-    "markdown-it-katex": "^2.0.3",
-    "vue": "^2.6.10",
-    "vue-i18n": "^8.21.1",
-    "vue-md-loader": "^1.1.0",
-    "vue-router": "^3.0.3",
-    "vuex": "^3.0.1"
+    "@element-plus/icons-vue": "^2.3.2",
+    "dompurify": "^3.4.15",
+    "element-plus": "^2.14.5",
+    "highlight.js": "^11.12.0",
+    "katex": "^0.18.7",
+    "markdown-it": "^15.0.2",
+    "pinia": "^4.0.3",
+    "vue": "^3.5.42",
+    "vue-router": "^5.3.1"
   },
   "devDependencies": {
-    "@vue/cli-plugin-babel": "^3.11.0",
-    "@vue/cli-service": "^3.11.0",
-    "vue-template-compiler": "^2.6.10"
-  },
-  "main": "index.js",
-  "repository": "https://github.com/SDUBigDataCourse/ghPagesScaffold.git",
-  "author": "yuyongcan <1686806870@qq.com>",
-  "license": "MIT"
-
+    "@types/markdown-it": "^14.2.0",
+    "@types/node": "^22.20.3",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "@vue/eslint-config-typescript": "^14.9.0",
+    "eslint": "^10.10.0",
+    "eslint-plugin-vue": "^10.11.0",
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.0",
+    "vite": "^8.3.0",
+    "vue-tsc": "^3.3.11"
+  }
 }

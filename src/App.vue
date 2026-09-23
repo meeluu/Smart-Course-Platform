@@ -1,72 +1,46 @@
-<template>
-  <div id="app">
-    <Layout>
-      <Header style="background:#2d8cf0;user-select:none">
-        <div style="display:flex;flex-direction:row">
-          <h1 style="flex-grow:1;color:white">{{ $t("bigdataTitle") }}</h1>
-          <Menu mode="horizontal" theme="primary" active-name="1">
-            <MenuItem name="1" to="/">
-              <Icon type="ios-home" />{{ $t("homePage") }}
-            </MenuItem>
-            <MenuItem name="2" to="projects">
-              <Icon type="ios-list-box" />{{ $t("projectList") }}
-            </MenuItem>
-            <MenuItem name="3" to="progress">
-              <Icon type="ios-code-working" />{{ $t("resultList") }}
-            </MenuItem>
-            <!-- <MenuItem name="4" to="resources">
-              <Icon type="ios-analytics" />{{ $t("courseResources") }}
-            </MenuItem> -->
-            <MenuItem name="5" to="classroom">
-              <Icon type="ios-book" />{{ $t("courseEntries") }}
-            </MenuItem>
-            <MenuItem name="0">
-              <span
-                @click="
-                  $root.$i18n.locale = $root.$i18n.locale == 'en' ? 'zh' : 'en'
-                "
-                style="display:inline-block;height:100%"
-              >
-                <Icon type="ios-globe-outline" />{{
-                  $i18n.locale == "en" ? "Chinese" : "English"
-                }}
-              </span>
-            </MenuItem>
-          </Menu>
-        </div>
-      </Header>
-      <Content
-        style="padding:48px;min-height:calc(100vh - 133px);margin:0 auto;max-width:1440px;width:100%;background:white"
-      >
-        <router-view />
-      </Content>
-      <Footer>
-        <div>
-          <span style="float:left">&copy;{{ year }} {{ $t("location") }}</span>
-          <a style="float:right" href="https://github.com/SDUBigDataCourse"
-            ><Icon type="logo-github" />Github</a
-          >
-        </div>
-      </Footer>
-    </Layout>
-  </div>
-</template>
+<script setup lang="ts">
+import { computed } from 'vue'
+import { RouterView, useRoute, useRouter } from 'vue-router'
+import { useWorkbenchStore } from '@/stores/workbench'
 
-<script>
-export default {
-  data() {
-    return {
-      year: 2020,
-    };
-  },
-  mounted() {
-    this.$set(this, "year", new Date().getFullYear());
-  },
-};
+/**
+ * 应用外壳
+ * ----------------------------------------------------------------------------
+ * 顶部标题栏 + 两个页签（工作台 / 论文推荐）+ 全局提示条。
+ * 与 platform-ui-mockup(3).html 的 header / nav / toast 一致。
+ */
+const store = useWorkbenchStore()
+const route = useRoute()
+const router = useRouter()
+
+const NAV = [
+  { path: '/', label: '工作台' },
+  { path: '/papers', label: '论文推荐' },
+]
+
+const activePath = computed(() => route.path)
 </script>
 
-<style>
-#app {
-  min-width: 1250px;
-}
-</style>
+<template>
+  <header>
+    <div class="logo">《大数据分析实践》智慧课程平台<span>AI 项目顾问</span></div>
+    <div class="avatar">我</div>
+  </header>
+
+  <nav>
+    <button
+      v-for="item in NAV"
+      :key="item.path"
+      :class="{ active: activePath === item.path }"
+      @click="router.push(item.path)"
+    >
+      {{ item.label }}
+    </button>
+  </nav>
+
+  <div class="page show">
+    <RouterView />
+  </div>
+
+  <div class="toast" :class="{ show: store.toastVisible }">{{ store.toastText }}</div>
+</template>

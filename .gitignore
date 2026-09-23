@@ -1,21 +1,61 @@
 .DS_Store
 node_modules
+node_modules_legacy_vue2
 /dist
+dist-ssr
+*.log
 
-# local env files
+# 本地环境变量
+.env
 .env.local
 .env.*.local
 
-# Log files
+# 日志
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# Editor directories and files
+# 编辑器
 .idea
-.vscode
+.vscode/*
+!.vscode/extensions.json
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# 工具缓存
+.vite
+*.tsbuildinfo
+.eslintcache
+
+# ---------------------------------------------------------------------------
+# 课程素材与需求文档
+# ---------------------------------------------------------------------------
+# 本仓库是公开仓库。下面这些是真实会议记录、私下沟通与需求文档，
+# 只保留在本地，不进版本库。
+会议纪要.md
+老师与gpt的对话.md
+项目文档.md
+*.docx
+
+# 课程交付物：文件夹与其压缩包（都内含会议纪要副本与项目概况）
+9.21周一大数据分析实践课程需要的数据/
+9.21周一大数据分析实践课程需要的数据.zip
+*.zip
+
+# ---------------------------------------------------------------------------
+# 旧版本代码归档与设计稿
+# ---------------------------------------------------------------------------
+# 前两版的界面代码：本地保留，不进版本库。
+# 需要取回时用 git show 05c5eb1:<路径> 或 git show 3daf799:<路径>。
+legacy-v0/
+legacy-v1/
+
+# 设计稿：已按它实现完界面，作为参照留在本地
+platform-ui-mockup*.html
+
+# 课程图片素材：当前界面未使用，属于往届项目缩略图与教师照片
+public/images/
