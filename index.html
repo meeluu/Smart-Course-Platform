@@ -3,23 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f2f2f7" />
+    <meta name="theme-color" content="#f5f6f8" />
     <meta
       name="description"
-      content="《大数据分析实践》智慧课程平台：以课程资源为证据底座，支持学习路径组织、可溯源智能问答与细粒度能力诊断。"
+      content="《大数据分析实践》智慧课程平台：以项目状态为核心，AI 项目顾问根据上传材料与已提交证据，给出 1~3 步建议并说明为什么现在做，同时提供论文检索提示词。"
     />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <title>《大数据分析实践》人机协同项目推进系统</title>
+    <title>《大数据分析实践》智慧课程平台 · AI 项目顾问</title>
   </head>
   <body>
     <!--
-      DIRECTION CONTRACT — 「纸上系统」
-      THESIS: 界面唯一的主角是「项目当前状态」。它必须看起来像一张可以安静读下去的纸，而不是一块会发光的控制台；因此拒绝上一版的深海底色、彩色发光与渐变——层次改由底色差（浅灰页 / 纯白卡）、发丝线和字号阶梯建立。
-      OWN-WORLD: iOS 原生观感：页面 #f2f2f7、卡片纯白、分隔线 rgba(60,60,67,.14)；唯一强调色是系统蓝 #007aff，只用于"可点 / 已选中 / 正在发生"；中性色四档（#1c1c1e / #3a3a3c / #55555a / #6e6e73）全部达到 5.2:1 以上；全站系统字体栈（-apple-system / SF Pro / 苹方）。
-      STORY: 学生先看见自己的项目逻辑断在哪，再被追问一个答不上来就该自己复盘的问题；写下判断之后，状态才发生变化；于是系统用得越多，留下的是更多学生的判断与依据，而不是更少。
-      FIRST VIEWPORT: 一条半透明材质的浅色任务栏横贯顶部，右侧常驻"待你处理 N 项"；其下第一屏是项目身份带与四个直接动作（我卡住了 / 检查跑偏 / 下一步做什么 / 准备问老师），紧接着是「此刻最需要你处理的事」——断裂点用系统红置顶，且没有任何"一键修复"。
-      FORM: 浅色分组式界面（Operate 模式下的 Restrained 色彩策略：中性为主 + 单一强调色）；用户已指定"参考 iOS、简约流畅丝滑"，属 pin 定的世界，故不执行 concept-seed 摇号，直接按 pinned direction 全量落地。
-      FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+      界面契约
+      ----------------------------------------------------------------
+      THESIS：学生打开平台要立刻看清两件事——项目现在走到哪个里程碑、下一步该做什么。
+      因此首屏是三栏工作台：左边是项目事实（材料 / 里程碑 / 活跃度 / 疑问），
+      中间是 AI 顾问的步骤建议（每步都写清为什么现在做、完成标志是什么），右边是提交证据。
+      OWN-WORLD：浅灰底 #f5f6f8 + 纯白卡片 + 12px 圆角 + 发丝线；语义色只用于状态
+      （蓝=进行中 #185FA5/#378ADD、绿=已完成 #1D9E75、紫=AI #534AB7、琥珀=疑问 #FAC775）；
+      不用渐变承担层次，层次只由底色差、发丝线与字号阶梯建立。
+      STORY：项目不是靠填表推进的，是靠「认领一步 → 做完 → 提交证据 → 状态更新」推进的。
+      所以每一步必须带完成标志，每一条证据都要落到里程碑上，未确定的事自动进入「未解决的疑问」。
+      FIRST VIEWPORT：没有项目时是创建页（选题目、填人数、上传实验手册与数据集）；
+      有项目时第一屏是一条五段里程碑流程条，其下三栏工作台。
+      FINISH：界面与 platform-ui-mockup(3).html 保持一致；样式同源于 src/styles/platform.css。
     -->
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
