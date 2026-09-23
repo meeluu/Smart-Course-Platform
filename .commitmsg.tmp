@@ -1,0 +1,24 @@
+feat: 删除课程资料管线；论文推荐支持「直接链接 + 检索提示词」两种方式
+
+## 清理
+- 删除上一版的课程资料管线（约 1590 行）：data/materials.ts、utils/content.ts、
+  utils/markdown.ts、types/course.ts、上一版样式系统（base/element/tokens.css）
+- 27 份往届学生项目材料归档到 legacy-v1（系统删除保护挡住了递归删除）
+- 依赖从 9 个精简到 3 个运行时包（去掉 element-plus、markdown-it、highlight.js、
+  katex、dompurify、@element-plus/icons-vue、@types/markdown-it）
+  构建时间 3.9s → 0.3s
+- 修正 package.json 过时的 description
+
+## 论文推荐：两种方式并列
+- PaperDirection 增加可选 link 字段（指向具体论文的可靠地址）
+- 卡片同时渲染两条路：
+  ① 有 link 的开原文；没有 link 的退化为「按标题检索」（一定可用的链接）
+  ② 复制检索提示词，粘到 GPT 里自己检索
+- 卡片上标明用的是哪一种，并把推荐理由说清
+- 论文页新增「两种推荐方式」说明卡
+- 目前 9 套模板 27 条推荐里有 2 条填了真实 DOI，其余走按标题检索
+
+## 文档
+- 新增 项目交接文档.md：写给接手「开发计划与设计」的人，含当前状态、
+  做了什么做不到什么、缺口、已定决策、需拍板的问题、如何自行核实
+- 交接文档已登记新需求：项目计划表 + 目前重要的计划 + 计划表可视化

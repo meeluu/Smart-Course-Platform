@@ -113,7 +113,8 @@ export const TEMPLATES: Record<string, Template> = {
     papers: [
       {
         title: 'Global Fishing Watch 与 AIS 捕捞努力量提取方法',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '已定位到具体论文（Kroodsma et al. 2018, Science）',
+        link: 'https://doi.org/10.1126/science.aao5646',
         why: 'GFW 是这个方向的标杆，数据定义和状态分类基本可以直接借鉴。',
         prompt:
           '请检索 Global Fishing Watch 基于 AIS 的捕捞努力量研究（如 Kroodsma et al. 2018 Science）：1) 捕捞努力量的定义与计算方法 2) 航行/作业状态判别 3) 公开数据产品的获取方式。请附出处。',
@@ -454,7 +455,8 @@ export const TEMPLATES: Record<string, Template> = {
     papers: [
       {
         title: '海洋热浪的定义体系：Hobday 框架及其扩展',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '已定位到具体论文（Hobday et al. 2016, Progress in Oceanography）',
+        link: 'https://doi.org/10.1016/j.pocean.2015.12.014',
         why: '海洋热浪定义是「高温」因子判定的基础，也是整个复合事件定义的起点。',
         prompt:
           '请检索 marine heatwave definition（Hobday et al. 2016/2018 框架）：1) 相对气候态百分位阈值的定义细节 2) 滑动气候态 vs 固定气候态的争议 3) 向多因子复合事件的扩展。请附出处。',

@@ -29,12 +29,21 @@ export interface SuggestedStep {
   done: string
 }
 
-/** 论文检索方向：给提示词，不给现成链接 */
+/**
+ * 论文推荐。两种方式并存：
+ *   ① 直接给链接 —— 填了 `link`（指向具体论文，通常是 DOI）就直接能打开；
+ *      没填则退化为「按标题检索」的链接，点开也能看到相关论文。
+ *   ② 给提示词 —— `prompt` 复制到 GPT 里自己检索，练检索能力、也拿到最新结果。
+ *
+ * 只填能核实的链接：填错会 404，宁可留空走检索。
+ */
 export interface PaperDirection {
   title: string
   meta: string
   why: string
   prompt: string
+  /** ① 指向具体论文的可靠地址，例如 DOI 链接 */
+  link?: string
 }
 
 /** 题目模板（创建项目时实例化） */
