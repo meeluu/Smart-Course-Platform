@@ -62,3 +62,6 @@ public/images/
 
 # 提交说明的临时文件
 .commitmsg.tmp
+
+# 后端编译产物
+server/dist/
