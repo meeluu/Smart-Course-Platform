@@ -1,8 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { ADVISOR_RECOMMENDATIONS_PATH } from './advisor.js'
+import { sendJson } from './health.js'
 
 /** Browser origin allowed to call the advisor API. */
 export const ALLOWED_CORS_ORIGIN = 'https://course.xinxian-music.xyz'
-export const ADVISOR_PATH = '/api/advisor/recommendations'
 
 function requestPath(req: IncomingMessage): string {
   return new URL(req.url ?? '/', 'http://localhost').pathname
@@ -15,29 +16,19 @@ function setCorsHeaders(res: ServerResponse): void {
   res.setHeader('Vary', 'Origin')
 }
 
-function sendRejectedOrigin(res: ServerResponse): void {
-  const body = JSON.stringify({ status: 'error', message: '来源不被允许' })
-  res.writeHead(403, {
-    'content-type': 'application/json; charset=utf-8',
-    'content-length': Buffer.byteLength(body),
-    'cache-control': 'no-store',
-  })
-  res.end(body)
-}
-
 /** Handle CORS for the advisor endpoint before its normal route handler. */
 export function handleAdvisorCors(req: IncomingMessage, res: ServerResponse): boolean {
-  if (requestPath(req) !== ADVISOR_PATH) return false
+  if (requestPath(req) !== ADVISOR_RECOMMENDATIONS_PATH) return false
 
   const origin = req.headers.origin
   if (origin !== undefined && origin !== ALLOWED_CORS_ORIGIN) {
-    sendRejectedOrigin(res)
+    sendJson(res, 403, { status: 'error', message: '来源不被允许' })
     return true
   }
 
   if (req.method === 'OPTIONS') {
     if (origin !== ALLOWED_CORS_ORIGIN) {
-      sendRejectedOrigin(res)
+      sendJson(res, 403, { status: 'error', message: '来源不被允许' })
       return true
     }
     setCorsHeaders(res)

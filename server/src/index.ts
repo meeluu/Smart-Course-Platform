@@ -9,7 +9,7 @@ import { createAdvisorService, type AdvisorService } from './advisor/service.js'
 import { createConsoleLogger, type AdvisorLogger, type AdvisorProvider } from './advisor/types.js'
 import { createAdvisorHandler } from './routes/advisor.js'
 import { handleHealth, sendJson } from './routes/health.js'
-import { handleAdvisorCors } from './cors.js'
+import { handleAdvisorCors } from './routes/cors.js'
 
 /**
  * HTTP 服务入口
