@@ -1,11 +1,11 @@
 # 智慧课程平台 · 前后端接口契约（首轮 MVP）
 
-> 版本：v1.0
+> 文档修订：v1.1（接口 `contractVersion` 仍为 `"1.0"`）
 > 编制日期：2026-09-25
 > owner：负责人（后端）
 > 地位：**本文件是首轮 MVP 前后端唯一契约。** 三位成员不得自行新增字段或创建第二套 DTO。
 > 适用范围：`POST /api/advisor/recommendations`、前端 store action 契约、任务 / 证据 / 疑问 / 建议的最小字段。
-> **本文只定义接口，不代表接口已上线。** 部署现状与未验证项见第 7 节。
+> **本文定义接口，不能替代部署验证。** 当前线上验证结果与仍需复验的事项见第 7 节。
 
 本文引用并取代《首轮 MVP 任务分配与智能体提示词》第 4 节的草案；差异逐条列在第 9 节。
 
@@ -46,8 +46,8 @@
 
 | 成员 | 只看这些 | 要交付的东西 |
 | --- | --- | --- |
-| 李焰彬 | 第 2、3、4、6、8 节 | `src/types/platform.ts` 的 DTO、`src/stores/**` 的 6 个 action、`src/services/advisorApi.ts` 的 HTTP 适配、`src/domain/recommendation.ts` 的本地规则 |
-| 雍蕾 | 第 3、5、6 节 | `AiStatus.vue` 的 5 个状态、`RecommendationList.vue` 的字段映射、`EvidenceForm.vue` 的提交与失败保留 |
+| 李焰彬 | 第 2、3、4、6、8 节 | `src/types/platform.ts` 的 DTO、`src/stores/**` 的 6 个 action、`src/services/advisorApi.ts` 的 HTTP 适配、进度与活动映射 |
+| 雍蕾 | 第 3、5、6 节 | 建议区的 6 个状态、建议卡片字段映射、证据提交与失败保留 |
 | 吴佳璐 | 第 4.1、4.3、6、8 节 | `promptVersion` 取值、提示词规格、非法输出与引用越界的反例样例 |
 
 ---
@@ -58,7 +58,7 @@
 
 | 项 | 约定 |
 | --- | --- |
-| ID 形态 | `<前缀>_<32 位十六进制>`，例如 `tsk_5b21c0e4a1f04f0e9c7d3b6a2e8f105c`；长度 ≤ 64；**由前端生成**，服务端只当不透明字符串 |
+| ID 形态 | `<前缀>_<可打印字符串>`，长度 ≤ 64；示例：`tsk_5b21c0e4_0`、`tsk_2da77a87_dd5f3f0c5`；**由前端生成**，服务端只当不透明字符串。契约不要求固定 32 位十六进制 |
 | ID 前缀 | 项目 `prj_`、任务 `tsk_`、证据 `evd_`、疑问 `dbt_` |
 | 时间 | ISO 8601 带时区偏移，例如 `2026-09-25T10:12:00+08:00`。**不存展示字符串**，界面格式化由前端负责 |
 | 缺失值 | 一律用 `null`，不用空字符串，不用省略字段（见第 9 节差异 2） |
@@ -153,6 +153,9 @@ Recommendation 有两个形态，**字段名完全一致，只是前端多两个
 | 用途 | ① 丢弃过期响应；② 服务端缓存键；③ 将来服务端持久化后判断冲突 |
 | 不可变性 | 递增，不重用，回退不还原 |
 
+> **兼容实现说明（当前 main）**：现有旧项目模型暂时用影响建议的状态摘要生成稳定正整数，前端按相等性判断响应是否过期，并不把它当作连续计数。迁移到结构化任务模型后，改为按本表递增；调用方只能依赖“同一状态相等、状态变化不相等”，不能依赖具体数值大小。
+
+
 ---
 
 ## 3. 前端 store action 契约
@@ -229,7 +232,7 @@ type ActionResult<T> =
 | 完整 URL | `https://api.xinxian-music.xyz/api/advisor/recommendations` |
 | 前端拼接 | `import.meta.env.VITE_API_BASE_URL` **不含** `/api`；适配层自行追加 `/api/advisor/recommendations`，避免出现 `/api/api/...` |
 | Method / 头 | `POST`，`Content-Type: application/json`（`charset=utf-8`） |
-| 鉴权 | MVP 无账号，**不带** Cookie、不带自定义 token；服务端以来源白名单 + IP 限流保护（见 7.4） |
+| 鉴权 | MVP 无账号，**不带** Cookie、不带自定义 token；当前部署使用生产来源白名单，IP 限流暂未启用 |
 | 请求体上限 | 256 KB，超出返回 400 `INVALID_INPUT` |
 | 连接超时 | 适配层 20 秒；服务端模型调用超时 20 秒（两者对齐，见 7.5） |
 | 重试 | 适配层最多自动重试 1 次，仅限 `retryable: true` 的失败，退避 1 秒 |
@@ -571,7 +574,7 @@ refreshRecommendations()  → 网络请求，允许失败
 2. 建议来源（模型 / 规则 / 本地规则）；
 3. 失败原因（用 `fallbackReason` 或错误 `code` 映射成人话，不显示原始英文码给最终用户）。
 
-### 5.3 `aiStatus` 状态机（`AiStatus.vue`）
+### 5.3 `aiStatus` 状态机（页面建议区）
 
 | 状态 | 何时进入 | 页面表现 |
 | --- | --- | --- |
@@ -598,7 +601,7 @@ refreshRecommendations()  → 网络请求，允许失败
 | code | HTTP | retryable | 触发条件 | 前端行为 |
 | --- | --- | --- | --- | --- |
 | `INVALID_INPUT` | 400 | `false` | 请求体非法、缺必填字段、超长度上限、`contractVersion` 或 `promptVersion` 不支持 | 不重试；切 `local-rule`；把 `code` 写进控制台日志 |
-| `RATE_LIMITED` | 429 | `true` | 触发服务端或上游限流 | 按 `retryAfterSeconds` 提示后重试；仍失败则切 `local-rule` |
+| `RATE_LIMITED` | 429 | `true` | 预留给服务端或上游限流；当前部署未启用 IP 限流 | 按 `retryAfterSeconds` 提示后重试；仍失败则切 `local-rule` |
 | `MODEL_TIMEOUT` | 504 | `true` | 模型调用超过 20 秒 | 自动重试 1 次；失败切 `local-rule` |
 | `INVALID_MODEL_OUTPUT` | 502 | `true` | 模型输出违反 4.6 规则，**且**服务端规则兜底也未能产出建议 | 自动重试 1 次；失败切 `local-rule` |
 | `MODEL_UNAVAILABLE` | 503 | `true` | 上游 5xx、连接失败、上游返回无法归类的错误 | 同上 |
@@ -627,16 +630,13 @@ GET /health
 ```json
 {
   "status": "ok",
-  "service": "advisor-api",
+  "service": "course-platform-api",
   "contractVersion": "1.0",
-  "promptVersion": "mvp-prompt-v1",
-  "modelConfigured": false,
-  "time": "2026-09-25T11:03:00+08:00"
+  "checkedAt": "2026-09-25T11:03:00.000Z"
 }
 ```
 
-- 健康时 `200`；依赖不可用时 `503` 且 `status: "degraded"`；
-- `modelConfigured` 只表示"服务端读到密钥"，**不表示模型可用**，也不得回显密钥来源与名称；
+- 健康时返回 `200`；当前实现只报告进程健康，不探测模型依赖，因此不返回 `degraded` 或 `modelConfigured` 字段；
 - 该接口不得返回任何项目数据。
 
 ---
@@ -662,28 +662,28 @@ GET /health
 - 计划文档中"例如 127.0.0.1:3000"是早期建议值，**以 8080 为准**（见第 9 节差异 12）。
 - 后端内部端口不得对公网开放。
 
-### 7.3 未验证事项（写进契约是为了避免误判）
+### 7.3 部署验证状态（写进契约是为了避免误判）
 
 | 事项 | 状态 |
 | --- | --- |
-| `api.xinxian-music.xyz` 的 DNS 与证书 | **未验证**（部署现状文档明确记录未核对） |
-| 8080 上是否已有服务占用 | **未验证** |
-| API 隧道 `cloudflared.service` 与 8080 的连通、CORS、健康检查 | **未验证** |
+| `api.xinxian-music.xyz` 的 DNS 与证书 | **已验证**（2026-09-25） |
+| 8080 上是否已有服务占用 | **已验证**：后端由 systemd 监听 `127.0.0.1:8080` |
+| API 隧道 `cloudflared.service` 与 8080 的连通、CORS、健康检查 | **已验证**（OPTIONS 204、POST 200、source=model） |
 | 前端隧道与静态站点 | 已验证过一次外网 `200 OK`（2026-09-23 记录） |
-| 建议接口本身 | **尚未实现、尚未部署** |
+| 建议接口本身 | **已验证并部署**：公网 POST 返回 200、source=model、建议 3 条 |
 
-因此：任何文档、PR 说明或汇报中**不得**出现"建议接口已上线""API 已可用"等表述，直到 7.3 中前三项与接口都实测通过。
+以上线上事项已经完成一次实测。后续每次后端或隧道变更后都必须重新验证，不得把历史验证结果当成当前部署状态。
 
 ### 7.4 跨域与访问控制（约定）
 
 | 项 | 约定 |
 | --- | --- |
-| 允许来源 | 生产 `https://course.xinxian-music.xyz`；本地 `http://localhost:5173`（端口变化时同步调整） |
+| 允许来源 | 当前部署只允许生产来源 `https://course.xinxian-music.xyz`；其他来源返回 403。本地开发需使用 Vite 代理或部署同源环境 |
 | 方法 | `POST`、`OPTIONS`（预检必须显式处理） |
 | 请求头 | `Content-Type`；MVP 不使用 Cookie，因此 `Access-Control-Allow-Credentials` 保持关闭 |
-| 缓存 | API 响应禁止公共边缘缓存（`Cache-Control: no-store`）；建议结果的服务端缓存在进程内，不经过 CDN |
-| 限流 | MVP 无账号，按来源 IP 限流；超限返回 429 `RATE_LIMITED` |
-| 预算 | 服务端配置单日调用上限与单次 token 上限，超限同样走 `fallback`，不返回 5xx 给前端 |
+| 缓存 | API 响应禁止公共边缘缓存（`Cache-Control: no-store`）；当前未实现服务端建议缓存，`cached` 固定为 `false` |
+| 限流 | 当前部署尚未启用 IP 限流；`RATE_LIMITED` 保留为契约错误码，启用限流后才返回 |
+| 预算 | 单日调用上限与单次 token 上限尚未在本轮部署中启用；启用后超限应走 `fallback`，不返回 5xx 给前端 |
 
 ### 7.5 超时与重试（约定）
 
@@ -775,13 +775,13 @@ GET /health
 
 | # | 问题 | 我的默认选择 | 影响 |
 | --- | --- | --- | --- |
-| 1 | 服务端建议缓存本轮就做，还是推迟到阶段 5？ | 本轮就做（键 = `projectId + projectRevision + promptVersion`，`forceRefresh` 可绕过） | 决定后端是否要引入缓存模块与相应测试 |
-| 2 | 4.1 的数组上限（任务 100 / 证据 30 / 疑问 30 / 请求体 256 KB）是否合适？ | 按现值 | 影响 `INVALID_INPUT` 反例的构造与前端截断逻辑 |
-| 3 | `promptVersion` 的首个取值是否确定用 `"mvp-prompt-v1"`？ | 用该值 | 吴佳璐的提示词规格与李焰彬的常量必须与此一致 |
-| 4 | MVP 是否需要一层极简鉴权（例如固定请求头 token），还是只靠来源白名单 + IP 限流？ | 只靠来源白名单 + 限流 | 若加 token，前端需要一个可公开的凭证，且要新增 `UNAUTHORIZED` 分支 |
-| 5 | 服务器 8080 是否空闲？若被占用，是改隧道配置还是改后端端口？ | 先确认再定；默认改服务端口以适配隧道 | 决定 7.2 是否需要修订 |
-| 6 | 切换项目时是否用 `AbortController` 主动取消在途请求？ | 建议取消（丢弃规则已有，取消只是省流量） | 影响 `advisorApi.ts` 的实现复杂度与测试写法 |
-| 7 | 是否需要 `suggestedOwner` 提前启用？ | 本轮不启用（无成员名单） | 若启用，需要先定成员名单来源 |
+| 1 | 服务端建议缓存本轮就做，还是推迟到阶段 5？ | **推迟到阶段 5**；当前 `cached` 固定为 `false`，`forceRefresh` 保留以兼容后续缓存 | 本轮不宣称已有服务端缓存 |
+| 2 | 4.1 的数组上限（任务 100 / 证据 30 / 疑问 30 / 请求体 256 KB）是否合适？ | **已确认，按现值** | 影响 `INVALID_INPUT` 反例的构造与前端截断逻辑 |
+| 3 | `promptVersion` 的首个取值是否确定用 `"mvp-prompt-v1"`？ | **已确认，用该值** | 吴佳璐的提示词规格与前端常量必须与此一致 |
+| 4 | MVP 是否需要一层极简鉴权？ | **暂不增加 token**；当前使用生产来源白名单，IP 限流待后续启用 | 若增加 token，前端需要新增鉴权分支 |
+| 5 | 服务器 8080 是否空闲？ | **已确认使用 `127.0.0.1:8080`**，Cloudflare 隧道已对齐 | 后端端口变化时必须同步修改隧道 |
+| 6 | 切换项目时是否用 `AbortController` 主动取消在途请求？ | **已实现**；同时保留 requestId/projectId/projectRevision 丢弃校验 | 取消只用于节省流量，正确性仍由丢弃规则保证 |
+| 7 | 是否需要 `suggestedOwner` 提前启用？ | **本轮不启用**（无成员名单） | 后续先确定成员名单来源 |
 
 ---
 
@@ -790,3 +790,4 @@ GET /health
 | 版本 | 日期 | 变更 | 作者 |
 | --- | --- | --- | --- |
 | v1.0 | 2026-09-25 | 首版：确定建议接口、store action、最小字段、错误码、失败分层、扩展位 | 负责人（后端） |
+| v1.1 | 2026-09-25 | 同步已实现的健康检查、生产域名、CORS、缓存现状、ID 形态和线上验收状态；接口版本仍为 1.0 | 负责人（后端） |
