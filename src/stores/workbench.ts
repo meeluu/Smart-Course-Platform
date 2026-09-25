@@ -4,6 +4,29 @@ import type { MaterialType, Project, Template } from '@/types/platform'
 import { TEMPLATES, TOPICS } from '@/data/topics'
 // 论文方向只从这一个入口取：现在返回模板预置内容，接入后端后换实现即可，页面无需改动
 import { generateDirection, genericDirections, presetDirections } from '@/services/papers'
+// 建议请求：适配层负责 HTTP 与契约校验，mvpFallbacks 负责后端不可用时的本地兜底
+import {
+  buildAdvisorRequest,
+  fetchRecommendations,
+  isStaleResponseError,
+  shouldFallbackToLocalRule,
+  toRecommendations,
+} from '@/services/advisorApi'
+import { buildLocalRecommendations } from '@/data/mvpFallbacks'
+import { deriveDoubtSnapshots, deriveEvidenceSnapshots } from '@/domain/activity'
+import {
+  computeProjectRevision,
+  currentMilestoneName,
+  deriveProjectId,
+  deriveTaskSnapshots,
+} from '@/domain/progress'
+import type {
+  ActionResult,
+  AdvisorApiError,
+  AdvisorFallbackReason,
+  Recommendation,
+  RecommendationSource,
+} from '@/domain/recommendation'
 
 /** 近 4 周的时间标签，与 mockup 一致 */
 export const WEEK_LABELS = ['8.31-9.6', '9.7-9.13', '9.14-9.20', '9.21-9.27']
@@ -18,6 +41,51 @@ const AI_REPLIES = [
   '我不直接给答案，但提示一个方向：先想清楚这个问题影响哪个里程碑的决策——如果影响启动方向就值得现在花时间；如果只是细节，先记下来往前走。',
   '如果想深入了解某个具体方向，可以去「论文推荐」页让 AI 生成针对性的检索提示词。',
 ]
+
+/** 建议请求的状态机（契约 5.3） */
+export type AiStatus = 'idle' | 'loading' | 'model' | 'fallback' | 'local-rule' | 'error'
+
+/** refreshRecommendations 的成功返回（契约 3.2） */
+export interface AdvisorOutcome {
+  source: RecommendationSource
+  suggestions: Recommendation[]
+  cached: boolean
+  fallbackReason: AdvisorFallbackReason | null
+  requestId: string | null
+}
+
+/**
+ * 单个项目的建议状态。
+ * 按项目分开存：切换项目时天然隔离，旧响应不会串写到新项目。
+ * 目前只在内存里（现有 store 没有持久化）；后续要落 localStorage 时，
+ * 这个结构里都是可序列化的普通对象，直接挂到现有持久化方式上即可。
+ */
+interface AdvisorState {
+  status: AiStatus
+  suggestions: Recommendation[]
+  /** 失败原因，留给界面层映射文案；不要把技术错误直接当成用户文案 */
+  error: AdvisorApiError | null
+  /** 这批建议对应的请求与项目版本 */
+  requestId: string | null
+  projectRevision: number
+  cached: boolean
+  fallbackReason: AdvisorFallbackReason | null
+}
+
+function emptyAdvisorState(): AdvisorState {
+  return {
+    status: 'idle',
+    suggestions: [],
+    error: null,
+    requestId: null,
+    projectRevision: 0,
+    cached: false,
+    fallbackReason: null,
+  }
+}
+
+/** 契约 4.0：可重试的失败自动重试一次，退避 1 秒 */
+const RETRY_DELAY_MS = 1_000
 
 /**
  * 工作台状态
@@ -39,6 +107,41 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     curIdx.value >= 0 ? projects.value[curIdx.value] : undefined,
   )
   const hasProject = computed(() => Boolean(current.value))
+
+  /* ------------------------------------------------------------ 建议状态 */
+
+  /** 每个项目一份建议状态，key 是派生出的 projectId */
+  const advisorByProject = ref<Record<string, AdvisorState>>({})
+  /** 在途请求序号：只有最后一次请求的响应才允许写入 */
+  let inFlightToken = 0
+  /** 在途请求的控制器：新请求会取消上一次（契约 4.7 第 4 条） */
+  let inFlightAbort: AbortController | null = null
+
+  /** 当前项目的 projectId（现有 Project 没有 id，由 name + group 派生） */
+  const currentProjectId = computed<string | null>(() =>
+    current.value === undefined ? null : deriveProjectId(current.value),
+  )
+
+  /** 当前项目的建议状态；没有项目或还没请求过时是空状态 */
+  const advisor = computed<AdvisorState>(() => {
+    const projectId = currentProjectId.value
+    if (projectId === null) return emptyAdvisorState()
+    return advisorByProject.value[projectId] ?? emptyAdvisorState()
+  })
+
+  /** 页面直接用的三个读法：状态 / 建议列表 / 失败原因 */
+  const aiStatus = computed<AiStatus>(() => advisor.value.status)
+  const recommendations = computed<Recommendation[]>(() => advisor.value.suggestions)
+  const aiError = computed<AdvisorApiError | null>(() => advisor.value.error)
+
+  /** 只替换目标项目的那一份状态，不碰其他项目 */
+  function patchAdvisor(projectId: string, patch: Partial<AdvisorState>): void {
+    const previous = advisorByProject.value[projectId] ?? emptyAdvisorState()
+    advisorByProject.value = {
+      ...advisorByProject.value,
+      [projectId]: { ...previous, ...patch },
+    }
+  }
 
   /* ------------------------------------------------------------ 提示条 */
 
@@ -300,6 +403,190 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     toast('AI 已生成专属检索提示词')
   }
 
+  /* -------------------------------------------------------- 建议请求流程 */
+
+  function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms)
+    })
+  }
+
+  /** 把未预期异常收敛成界面可用的失败原因：只记类型名，不外泄技术细节 */
+  function toUnexpectedError(error: unknown): AdvisorApiError {
+    console.warn('[advisor] 建议流程出现未预期异常', error instanceof Error ? error.name : 'unknown')
+    return {
+      code: 'NETWORK_ERROR',
+      message: '建议请求未能完成',
+      retryable: true,
+      retryAfterSeconds: null,
+      requestId: null,
+      cause: 'network',
+    }
+  }
+
+  /**
+   * 请求下一步建议（契约 3.2 的 refreshRecommendations）。
+   *
+   * 流程：组装请求 → 记录发起时的 projectId / projectRevision → 调用适配层
+   *      → 校验响应是否过期 → 写入状态；后端失败时改用本地规则（source=local-rule），
+   *      本地规则也给不出建议才进入 error。
+   *
+   * 三条不变量：只改建议状态（不动任务、证据、疑问），不抛未处理异常，过期响应不改任何状态。
+   */
+  async function refreshRecommendations(
+    options: { forceRefresh?: boolean } = {},
+  ): Promise<ActionResult<AdvisorOutcome>> {
+    const project = current.value
+    if (project === undefined) {
+      return { ok: false, code: 'NOT_FOUND', message: '还没有项目，无法请求建议' }
+    }
+
+    // 发起请求时的快照与身份：响应用它们判断是否已经过期
+    const reference = new Date()
+    const projectId = deriveProjectId(project)
+    const projectRevision = computeProjectRevision(project)
+    const currentMilestone = currentMilestoneName(project)
+    const tasks = deriveTaskSnapshots(project, reference)
+    const evidence = deriveEvidenceSnapshots(project, reference)
+    const doubts = deriveDoubtSnapshots(project, reference)
+    const generatedAt = reference.toISOString()
+
+    const request = buildAdvisorRequest({
+      projectId,
+      projectRevision,
+      projectName: project.name,
+      currentMilestone,
+      tasks,
+      evidence,
+      doubts,
+      forceRefresh: options.forceRefresh ?? false,
+    })
+
+    // 本地规则与请求体同源：后端不可用时，兜底建议必须基于同一份快照
+    const localInput = { generatedAt, projectRevision, currentMilestone, tasks, evidence, doubts }
+
+    // 新请求作废前一次在途请求
+    inFlightAbort?.abort()
+    const controller = new AbortController()
+    inFlightAbort = controller
+    inFlightToken += 1
+    const token = inFlightToken
+
+    patchAdvisor(projectId, {
+      status: 'loading',
+      suggestions: [],
+      error: null,
+      requestId: request.requestId,
+      projectRevision,
+      cached: false,
+      fallbackReason: null,
+    })
+
+    /** 丢弃过期响应：当前项目的状态一律不动（契约 4.7 补充约定 1） */
+    const discard = (): ActionResult<AdvisorOutcome> => {
+      // 项目已经切走时，把它自己的 loading 收尾，避免切回来看到永远转圈的状态
+      if (currentProjectId.value !== projectId) {
+        const state = advisorByProject.value[projectId]
+        if (state !== undefined && state.status === 'loading' && state.requestId === request.requestId) {
+          patchAdvisor(projectId, { status: 'idle', requestId: null })
+        }
+      }
+      return { ok: false, code: 'STALE_RESPONSE', message: '该建议响应已过期，已丢弃' }
+    }
+
+    /** 契约 5.1：后端失败 → 本地规则；本地规则也空 → error */
+    const fallbackToLocalRule = (error: AdvisorApiError): ActionResult<AdvisorOutcome> => {
+      const suggestions = buildLocalRecommendations(localInput)
+
+      if (suggestions.length > 0) {
+        patchAdvisor(projectId, {
+          status: 'local-rule',
+          suggestions,
+          // 失败原因留给界面层映射文案
+          error,
+          cached: false,
+          fallbackReason: null,
+          requestId: null,
+          projectRevision,
+        })
+        return {
+          ok: true,
+          data: {
+            source: 'local-rule',
+            suggestions,
+            cached: false,
+            fallbackReason: null,
+            requestId: null,
+          },
+        }
+      }
+
+      patchAdvisor(projectId, {
+        status: 'error',
+        suggestions: [],
+        error,
+        requestId: null,
+        projectRevision,
+      })
+      return { ok: false, code: error.code, message: error.message }
+    }
+
+    try {
+      let result = await fetchRecommendations(request, { signal: controller.signal })
+
+      // 契约 4.0：可重试的失败自动重试 1 次。契约把它划给适配层，
+      // 适配层本轮不改，先在 store 里补上；后续可以下移。
+      if (!result.ok && result.error.retryable && !controller.signal.aborted && token === inFlightToken) {
+        await delay(RETRY_DELAY_MS)
+        if (!controller.signal.aborted && token === inFlightToken) {
+          result = await fetchRecommendations(request, { signal: controller.signal })
+        }
+      }
+
+      // 过期判断（契约 4.7 第 1~4 条）
+      if (token !== inFlightToken) return discard()
+      if (currentProjectId.value !== projectId) return discard()
+      if (computeProjectRevision(project) !== projectRevision) return discard()
+
+      if (result.ok) {
+        const suggestions = toRecommendations(result.data)
+        const status: AiStatus = result.data.source === 'model' ? 'model' : 'fallback'
+
+        patchAdvisor(projectId, {
+          status,
+          suggestions,
+          error: null,
+          cached: result.data.cached,
+          fallbackReason: result.data.fallbackReason,
+          requestId: result.data.requestId,
+          projectRevision,
+        })
+
+        return {
+          ok: true,
+          data: {
+            source: result.data.source,
+            suggestions,
+            cached: result.data.cached,
+            fallbackReason: result.data.fallbackReason,
+            requestId: result.data.requestId,
+          },
+        }
+      }
+
+      // 适配层已判定的过期响应：静默丢弃，不提示用户
+      if (isStaleResponseError(result.error) || !shouldFallbackToLocalRule(result.error)) {
+        return discard()
+      }
+
+      return fallbackToLocalRule(result.error)
+    } catch (unexpected) {
+      return fallbackToLocalRule(toUnexpectedError(unexpected))
+    } finally {
+      if (inFlightAbort === controller) inFlightAbort = null
+    }
+  }
+
   return {
     projects,
     curIdx,
@@ -320,5 +607,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     sendChat,
     submitEvidence,
     askPaperAi,
+    // 建议请求（契约 3.2）：状态 + 读取器 + action
+    advisor,
+    aiStatus,
+    recommendations,
+    aiError,
+    refreshRecommendations,
   }
 })

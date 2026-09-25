@@ -1,0 +1,22 @@
+{
+  "name": "course-platform-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "智慧课程平台后端服务（首轮 MVP）：本轮只提供 GET /health",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/index.js",
+    "dev": "tsx watch src/index.ts",
+    "test": "npm run build && node --test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3"
+  }
+}
