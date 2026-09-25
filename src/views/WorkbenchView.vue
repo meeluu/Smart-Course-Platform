@@ -6,7 +6,9 @@ import ProjectMindMap from '@/components/ProjectMindMap.vue'
 import SuggestionCard from '@/components/SuggestionCard.vue'
 import { CHINESE_NUM, WEEK_LABELS, useWorkbenchStore } from '@/stores/workbench'
 import { deriveDoubtSnapshots, deriveEvidenceSnapshots } from '@/domain/activity'
-import { deriveTaskSnapshots } from '@/domain/progress'
+import { buildTaskId, deriveProjectId } from '@/domain/progress'
+import { buildDraftTaskId } from '@/domain/task'
+import type { NewTaskDraft } from '@/domain/task'
 import type { AdvisorFallbackReason, Recommendation } from '@/domain/recommendation'
 import type { Milestone } from '@/types/platform'
 
@@ -184,12 +186,10 @@ const derived = computed(() => {
   if (!p) return null
 
   const reference = new Date()
-  const tasks = deriveTaskSnapshots(p, reference)
   const evidence = deriveEvidenceSnapshots(p, reference)
   const doubts = deriveDoubtSnapshots(p, reference)
 
   return {
-    taskIndexById: new Map(tasks.map((task, index) => [task.taskId, index])),
     evidenceById: new Map(
       evidence.map((item, index) => [
         item.evidenceId,
@@ -200,22 +200,66 @@ const derived = computed(() => {
   }
 })
 
-/** 契约 5.4 第 4 条：同一条建议重复点击只认领一次 */
-const claimedIds = ref<string[]>([])
+/* ---------------------------------------------------------------- 认领 */
 
-watch(
-  () => store.curIdx,
-  () => {
-    claimedIds.value = []
-  },
-)
+/**
+ * 认领（契约 5.4）
+ * ----------------------------------------------------------------------------
+ * 页面对外**只用** `claimTask`，两种入参各对应一种建议：
+ *   existingTaskId 非空 → `claimTask({ taskId })`：认领已有任务
+ *   existingTaskId 为 null → `claimTask({ draft })`：把"新任务候选"落成真实任务
+ *
+ * "已认领"由**项目状态**推导，不用页面局部状态：
+ *   - 已有任务：看它在 store 里的任务状态（doing / done 都算已认领）
+ *   - 新任务候选：draft 的 taskId 由内容派生，store 里已有同 id 任务就是已认领
+ * 这样切换项目、重新获取建议之后按钮状态都不会说谎。
+ */
 
-type ClaimState = 'claimable' | 'claimed' | 'draft-unavailable'
+const projectId = computed(() => (project.value ? deriveProjectId(project.value) : null))
+
+/** 取建议里能作为任务的内容（字段与契约 3.2 的 NewTaskDraft 一致） */
+function draftOf(suggestion: Recommendation): NewTaskDraft {
+  return {
+    title: suggestion.title,
+    doneCriteria: suggestion.doneCriteria,
+    requestId: suggestion.requestId,
+    basisEvidenceIds: suggestion.basisEvidenceIds,
+    basisDoubtIds: suggestion.basisDoubtIds,
+  }
+}
+
+/** 与 store 创建任务时用的是同一个函数，避免两处各写一份 id 规则 */
+function draftTaskIdOf(suggestion: Recommendation): string | null {
+  const id = projectId.value
+  if (id === null) return null
+  return buildDraftTaskId(id, draftOf(suggestion))
+}
+
+type ClaimState = 'claimable' | 'claimed'
 
 function claimStateOf(suggestion: Recommendation): ClaimState {
-  if (claimedIds.value.includes(suggestion.id)) return 'claimed'
-  if (suggestion.existingTaskId === null) return 'draft-unavailable'
-  return 'claimable'
+  if (suggestion.existingTaskId === null) {
+    const draftTaskId = draftTaskIdOf(suggestion)
+    return draftTaskId !== null && store.tasks.some((task) => task.taskId === draftTaskId)
+      ? 'claimed'
+      : 'claimable'
+  }
+
+  const status = store.taskStatusById[suggestion.existingTaskId]
+  return status === 'doing' || status === 'done' ? 'claimed' : 'claimable'
+}
+
+/** 认领失败 → 中文提示（契约 3.3 的本地错误码，不把英文码给用户看） */
+const CLAIM_ERROR_TEXT: Record<string, string> = {
+  NOT_FOUND: '这个任务已经不在当前项目里，请重新获取建议',
+  TASK_NOT_CLAIMABLE: '这个任务已经完成，不需要再认领',
+  INVALID_INPUT: '这条建议缺少必要内容，暂时无法创建任务',
+  PROJECT_MISMATCH: '这条建议属于另一个项目，已忽略',
+  STORAGE_FULL: '本地存储已满，任务没有保存成功',
+}
+
+function claimFailureMessage(code: string): string {
+  return CLAIM_ERROR_TEXT[code] ?? '认领没能完成，请稍后再试'
 }
 
 const suggestionViews = computed(() =>
@@ -241,20 +285,23 @@ const suggestionViews = computed(() =>
   }),
 )
 
-/** 认领已有任务（新任务候选择由卡片自己禁用按钮，这里不会再被调到） */
+/** 认领一条建议：已有任务传 taskId，新任务候选传 draft */
 function claimSuggestion(suggestion: Recommendation) {
-  const taskId = suggestion.existingTaskId
-  if (taskId === null) return
-  if (claimedIds.value.includes(suggestion.id)) return
+  const result =
+    suggestion.existingTaskId === null
+      ? store.claimTask({ draft: draftOf(suggestion) })
+      : store.claimTask({ taskId: suggestion.existingTaskId })
 
-  const index = derived.value?.taskIndexById.get(taskId)
-  if (index === undefined) {
-    store.toast('这条建议对应的任务已经不在当前项目里，请重新获取建议')
-    return
-  }
+  if (!result.ok) store.toast(claimFailureMessage(result.code))
+}
 
-  store.claimStep(index)
-  claimedIds.value = [...claimedIds.value, suggestion.id]
+/** 顾问列表里的「认领这一步」：同样只走 claimTask（taskId 由步骤下标换算） */
+function claimStepTask(stepIndex: number) {
+  const id = projectId.value
+  if (id === null) return
+
+  const result = store.claimTask({ taskId: buildTaskId(id, stepIndex) })
+  if (!result.ok) store.toast(claimFailureMessage(result.code))
 }
 
 /* -------------------------------------------------------------- 材料 */
@@ -526,7 +573,7 @@ function submitEvidence() {
               <div class="sc-why"><b>为什么现在做：</b>{{ s.why }}</div>
               <div class="sc-done">{{ s.done }}</div>
               <div class="sc-actions">
-                <button class="btn primary" @click="store.claimStep(i)">认领这一步</button>
+                <button class="btn primary" @click="claimStepTask(i)">认领这一步</button>
                 <button class="btn" @click="store.askAboutStep(i)">就此提问</button>
                 <button class="btn" @click="router.push('/papers')">相关论文</button>
               </div>

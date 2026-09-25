@@ -15,17 +15,21 @@ import {
 import { buildLocalRecommendations } from '@/data/mvpFallbacks'
 import { deriveDoubtSnapshots, deriveEvidenceSnapshots } from '@/domain/activity'
 import {
+  buildTaskId,
   computeProjectRevision,
   currentMilestoneName,
   deriveProjectId,
   deriveTaskSnapshots,
 } from '@/domain/progress'
+import { buildTaskFromDraft } from '@/domain/task'
+import type { ClaimTaskResult, NewTaskDraft, Task } from '@/domain/task'
 import type {
   ActionResult,
   AdvisorApiError,
   AdvisorFallbackReason,
   Recommendation,
   RecommendationSource,
+  TaskStatus,
 } from '@/domain/recommendation'
 
 /** 近 4 周的时间标签，与 mockup 一致 */
@@ -276,18 +280,197 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     else toast('材料已上传，AI 已纳入项目状态')
   }
 
-  /* -------------------------------------------------------- 步骤与疑问 */
+  /* -------------------------------------------------------- 任务与认领 */
 
-  /** 认领一步：把它标记为进行中的里程碑，并记一条证据占位 */
-  function claimStep(stepIndex: number) {
+  /**
+   * 已认领 / 已创建的任务，按 projectId 分开存：切换项目天然隔离，任务不会串项目。
+   * 现有 Project 是模板结构（steps 既没有 id 也没有状态），所以任务记录先放在这里；
+   * 将来 Project 迁成结构化任务数组时把它搬进去即可，claimTask 的公开接口不变。
+   * 类型与 id 规则见 src/domain/task.ts。
+   */
+  const tasksByProject = ref<Record<string, Task[]>>({})
+
+  /** 当前项目已落库的任务 */
+  const tasks = computed<Task[]>(() => {
+    const projectId = currentProjectId.value
+    if (projectId === null) return []
+    return tasksByProject.value[projectId] ?? []
+  })
+
+  /**
+   * 当前项目全部任务的状态（含由 steps 派生的任务）。
+   * 页面据此判断"已认领"，不必自己在组件里记一份页面局部状态。
+   */
+  const taskStatusById = computed<Record<string, TaskStatus>>(() => {
     const project = current.value
-    if (!project) return
-    const step = project.steps[stepIndex]
-    if (!step) return
+    if (project === undefined) return {}
+
+    const statuses: Record<string, TaskStatus> = {}
+    for (const snapshot of deriveTaskSnapshots(project, new Date(), tasks.value)) {
+      statuses[snapshot.taskId] = snapshot.status
+    }
+    return statuses
+  })
+
+  /** 整体替换某个项目的任务列表（保证响应式，且顺序稳定） */
+  function writeTasks(projectId: string, list: Task[]): void {
+    tasksByProject.value = { ...tasksByProject.value, [projectId]: list }
+  }
+
+  /**
+   * 认领任务（契约 3.2 的 claimTask）
+   * ----------------------------------------------------------------------------
+   * 两种入参互斥、且必须给一个：
+   *
+   *   `{ taskId }` —— 认领**已有任务**：由 steps 派生的任务，或之前创建的任务；
+   *   `{ draft }`  —— 认领建议里的**新任务候选**（`existingTaskId === null`）：
+   *                   由前端生成 taskId，任务直接以 `doing` 落库（不经过 `todo`）。
+   *
+   * 不访问网络、不改服务端：任务只写进本地项目状态。
+   *
+   * 幂等：draft 的 taskId 由内容派生（见 domain/task.ts），同一份 draft 必然得到
+   * 同一个 id，所以重复点击不会创建第二条任务；已经在进行中的任务不会重复认领，
+   * 也不会再加进度。
+   */
+  function claimTask(
+    input: { taskId: string } | { draft: NewTaskDraft },
+  ): ActionResult<ClaimTaskResult> {
+    const project = current.value
+    if (project === undefined) {
+      return { ok: false, code: 'NOT_FOUND', message: '还没有项目，无法认领任务' }
+    }
+
+    const hasTaskId = 'taskId' in input
+    const hasDraft = 'draft' in input
+    if (hasTaskId === hasDraft) {
+      return {
+        ok: false,
+        code: 'INVALID_INPUT',
+        message: '认领任务需要且只能提供 taskId 或 draft 之一',
+      }
+    }
+
+    const projectId = deriveProjectId(project)
+    const known = tasksByProject.value[projectId] ?? []
+
+    /* ---- 新任务候选：落一条真实任务，直接 doing ---- */
+    if (hasDraft) {
+      const draft = input.draft
+      if (draft.title.trim() === '') {
+        return { ok: false, code: 'INVALID_INPUT', message: '这条建议没有标题，无法创建任务' }
+      }
+
+      const task = buildTaskFromDraft({
+        projectId,
+        draft,
+        milestone: currentMilestoneName(project),
+        now: new Date().toISOString(),
+      })
+
+      // 幂等：已经创建过同一条任务就什么都不做（同一条建议重复点击只产生一次任务）
+      if (known.some((item) => item.taskId === task.taskId)) {
+        toast(`「${task.title}」已经认领过了`)
+        return {
+          ok: true,
+          data: {
+            taskId: task.taskId,
+            status: 'doing',
+            projectRevision: computeProjectRevision(project, known),
+          },
+        }
+      }
+
+      const next = [...known, task]
+      writeTasks(projectId, next)
+      project.updated = `最近更新：把建议「${task.title}」认领为新任务`
+      toast(`已认领「${task.title}」，完成后请提交证据`)
+
+      return {
+        ok: true,
+        data: {
+          taskId: task.taskId,
+          status: 'doing',
+          projectRevision: computeProjectRevision(project, next),
+        },
+      }
+    }
+
+    /* ---- 已有任务：必须属于当前项目，且不能已完成 ---- */
+    const taskId = input.taskId
+    const stepTasks = deriveTaskSnapshots(project, new Date())
+    const stepIndex = stepTasks.findIndex((task) => task.taskId === taskId)
+    const recorded = known.find((task) => task.taskId === taskId)
+
+    if (stepIndex < 0 && recorded === undefined) {
+      return { ok: false, code: 'NOT_FOUND', message: '这个任务已经不在当前项目里，请刷新后重试' }
+    }
+
+    const status: TaskStatus = recorded !== undefined ? recorded.status : stepTasks[stepIndex].status
+    if (status === 'done') {
+      return { ok: false, code: 'TASK_NOT_CLAIMABLE', message: '这个任务已经完成，不需要再认领' }
+    }
+    if (status === 'doing') {
+      toast('这个任务已经在进行中，不用重复认领')
+      return {
+        ok: true,
+        data: { taskId, status: 'doing', projectRevision: computeProjectRevision(project, known) },
+      }
+    }
+
+    const now = new Date().toISOString()
+    const step = stepIndex >= 0 ? project.steps[stepIndex] : undefined
+    const next: Task[] =
+      step === undefined
+        ? known.map((task) => (task.taskId === taskId ? { ...task, status: 'doing', updatedAt: now } : task))
+        : [
+            ...known,
+            {
+              taskId,
+              projectId,
+              title: step.t,
+              status: 'doing',
+              doneCriteria: step.done.trim() === '' ? null : step.done,
+              owner: step.owner.trim() === '' ? null : step.owner,
+              milestone: currentMilestoneName(project),
+              requestId: null,
+              basisEvidenceIds: [],
+              basisDoubtIds: [],
+              createdAt: now,
+              updatedAt: now,
+            },
+          ]
+    writeTasks(projectId, next)
+
+    // 认领仍然沿用现有行为：进行中的里程碑 +25
     const cur = project.ms.find((m) => m.s === 'cur')
     if (cur && cur.p < 90) cur.p = Math.min(90, cur.p + 25)
-    project.updated = `最近更新：认领了步骤 ${stepIndex + 1}「${step.t}」`
-    toast(`已认领步骤 ${stepIndex + 1}，完成后请提交证据`)
+
+    project.updated =
+      step === undefined
+        ? `最近更新：认领了任务「${taskId}」`
+        : `最近更新：认领了步骤 ${stepIndex + 1}「${step.t}」`
+    toast(
+      step === undefined
+        ? '已认领该任务，完成后请提交证据'
+        : `已认领步骤 ${stepIndex + 1}，完成后请提交证据`,
+    )
+
+    return {
+      ok: true,
+      data: { taskId, status: 'doing', projectRevision: computeProjectRevision(project, next) },
+    }
+  }
+
+  /* -------------------------------------------------------- 步骤与疑问 */
+
+  /**
+   * 兼容入口：页面对外只用 claimTask。
+   * 这里把步骤下标换算成 taskId，内部走同一套认领逻辑，行为与原来一致。
+   */
+  function claimStep(stepIndex: number): void {
+    const project = current.value
+    if (!project) return
+    claimTask({ taskId: buildTaskId(deriveProjectId(project), stepIndex) })
   }
 
   function askAboutStep(stepIndex: number) {
@@ -442,11 +625,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
 
     // 发起请求时的快照与身份：响应用它们判断是否已经过期
+    // 已认领/已创建的任务也要一起带上，否则服务端会再次推荐同一条任务
+    const createdTasks = tasks.value
     const reference = new Date()
     const projectId = deriveProjectId(project)
-    const projectRevision = computeProjectRevision(project)
+    const projectRevision = computeProjectRevision(project, createdTasks)
     const currentMilestone = currentMilestoneName(project)
-    const tasks = deriveTaskSnapshots(project, reference)
+    const taskSnapshots = deriveTaskSnapshots(project, reference, createdTasks)
     const evidence = deriveEvidenceSnapshots(project, reference)
     const doubts = deriveDoubtSnapshots(project, reference)
     const generatedAt = reference.toISOString()
@@ -456,14 +641,21 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       projectRevision,
       projectName: project.name,
       currentMilestone,
-      tasks,
+      tasks: taskSnapshots,
       evidence,
       doubts,
       forceRefresh: options.forceRefresh ?? false,
     })
 
     // 本地规则与请求体同源：后端不可用时，兜底建议必须基于同一份快照
-    const localInput = { generatedAt, projectRevision, currentMilestone, tasks, evidence, doubts }
+    const localInput = {
+      generatedAt,
+      projectRevision,
+      currentMilestone,
+      tasks: taskSnapshots,
+      evidence,
+      doubts,
+    }
 
     // 新请求作废前一次在途请求
     inFlightAbort?.abort()
@@ -546,7 +738,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       // 过期判断（契约 4.7 第 1~4 条）
       if (token !== inFlightToken) return discard()
       if (currentProjectId.value !== projectId) return discard()
-      if (computeProjectRevision(project) !== projectRevision) return discard()
+      if (computeProjectRevision(project, createdTasks) !== projectRevision) return discard()
 
       if (result.ok) {
         const suggestions = toRecommendations(result.data)
@@ -601,6 +793,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectProject,
     createProject,
     uploadMaterial,
+    // 任务与认领（契约 3.2）：claimTask 是唯一的认领入口；
+    // claimStep 只作为兼容入口保留，内部同样走 claimTask
+    tasks,
+    taskStatusById,
+    claimTask,
     claimStep,
     askAboutStep,
     resolveDoubt,

@@ -1,5 +1,8 @@
 import type { Milestone, Project } from '@/types/platform'
 import type { TaskSnapshot } from '@/domain/recommendation'
+// 已认领/已创建的任务记录（见 domain/task）与这里派生的任务合并成同一份任务视图
+import { hash32, toTaskSnapshot } from '@/domain/task'
+import type { Task } from '@/domain/task'
 
 /**
  * 进度与任务状态（纯函数）
@@ -20,19 +23,6 @@ import type { TaskSnapshot } from '@/domain/recommendation'
 const MILESTONE_START_PROGRESS = 10
 /** 认领一次增加的进度（见 store 的 claimStep） */
 const CLAIM_STEP_PROGRESS = 25
-
-/**
- * 32 位 FNV-1a。
- * 只用来把字符串压成稳定的短标识：不用于安全判断，也不需要抗碰撞。
- */
-function hash32(input: string): number {
-  let hash = 0x811c9dc5
-  for (let index = 0; index < input.length; index += 1) {
-    hash ^= input.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193) >>> 0
-  }
-  return hash >>> 0
-}
 
 /**
  * 派生稳定的 projectId。
@@ -71,24 +61,42 @@ export function claimedStepCount(project: Project): number {
 }
 
 /**
- * 把现有步骤映射成任务快照。
+ * 把现有步骤映射成任务快照，并合并已认领/已创建的任务记录。
  * `reference` 由调用方传入（保持纯函数），用于 updatedAt。
+ *
+ * 合并规则：同 `taskId` 以**记录**为准。
+ * 认领一步会同时写一条记录（见 store 的 claimTask），这样"已认领"不依赖
+ * 里程碑进度反推，认领顺序也不会被进度反推改写；新任务候选的 id 与步骤派生的
+ * id 形状不同，只会追加、不会覆盖。
  */
-export function deriveTaskSnapshots(project: Project, reference: Date): TaskSnapshot[] {
+export function deriveTaskSnapshots(
+  project: Project,
+  reference: Date,
+  createdTasks: Task[] = [],
+): TaskSnapshot[] {
   const projectId = deriveProjectId(project)
   const milestone = currentMilestoneName(project)
   const claimed = claimedStepCount(project)
   const updatedAt = reference.toISOString()
 
-  return project.steps.map((step, index) => ({
-    taskId: buildTaskId(projectId, index),
-    title: step.t,
-    status: index < claimed ? 'doing' : 'todo',
-    doneCriteria: step.done.trim() === '' ? null : step.done,
-    owner: step.owner.trim() === '' ? null : step.owner,
-    milestone,
-    updatedAt,
-  }))
+  const byId = new Map<string, TaskSnapshot>(
+    project.steps.map((step, index) => [
+      buildTaskId(projectId, index),
+      {
+        taskId: buildTaskId(projectId, index),
+        title: step.t,
+        status: index < claimed ? 'doing' : 'todo',
+        doneCriteria: step.done.trim() === '' ? null : step.done,
+        owner: step.owner.trim() === '' ? null : step.owner,
+        milestone,
+        updatedAt,
+      },
+    ]),
+  )
+
+  for (const task of createdTasks) byId.set(task.taskId, toTaskSnapshot(task))
+
+  return [...byId.values()]
 }
 
 /**
@@ -98,10 +106,10 @@ export function deriveTaskSnapshots(project: Project, reference: Date): TaskSnap
  * 它对同一份状态稳定、状态一变就变，正好满足 revision 的用途（判断响应是否过期、
  * 作为服务端缓存键）。结构化迁移后应换成真正的递增计数。
  *
- * 参与摘要的是会影响建议的字段（里程碑进度、步骤、证据、疑问）：
+ * 参与摘要的是会影响建议的字段（里程碑进度、步骤、证据、疑问、已创建的任务）：
  * 聊天、论文方向、材料名不影响建议，所以不进摘要。
  */
-export function computeProjectRevision(project: Project): number {
+export function computeProjectRevision(project: Project, createdTasks: Task[] = []): number {
   const canonical = JSON.stringify({
     name: project.name,
     group: project.group,
@@ -109,6 +117,16 @@ export function computeProjectRevision(project: Project): number {
     steps: project.steps.map((item) => [item.t, item.owner, item.done]),
     evidence: project.evidence.map((item) => [item.time, item.text]),
     doubts: project.doubts,
+    // 认领/新建任务也是项目状态的一部分：不参与摘要的话，创建任务不会改变
+    // projectRevision，过期响应判断与服务端缓存都会出错。
+    tasks: createdTasks.map((task) => [
+      task.taskId,
+      task.title,
+      task.status,
+      task.doneCriteria,
+      task.owner,
+      task.milestone,
+    ]),
   })
 
   // 保证是 ≥ 1 的正整数
