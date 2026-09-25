@@ -9,6 +9,7 @@ import { createAdvisorService, type AdvisorService } from './advisor/service.js'
 import { createConsoleLogger, type AdvisorLogger, type AdvisorProvider } from './advisor/types.js'
 import { createAdvisorHandler } from './routes/advisor.js'
 import { handleHealth, sendJson } from './routes/health.js'
+import { handleAdvisorCors } from './cors.js'
 
 /**
  * HTTP 服务入口
@@ -99,6 +100,8 @@ export function createApp(serverConfig: ServerConfig = config, deps: AppDependen
   const handleAdvisor = createAdvisorHandler({ service: advisorService, logger })
 
   return createServer((req, res) => {
+    if (handleAdvisorCors(req, res)) return
+
     // 同步路由
     if (handleHealth(req, res, serverConfig)) return
 
