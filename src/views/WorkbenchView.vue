@@ -3,7 +3,11 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ProjectCreate from '@/components/ProjectCreate.vue'
 import ProjectMindMap from '@/components/ProjectMindMap.vue'
+import SuggestionCard from '@/components/SuggestionCard.vue'
 import { CHINESE_NUM, WEEK_LABELS, useWorkbenchStore } from '@/stores/workbench'
+import { deriveDoubtSnapshots, deriveEvidenceSnapshots } from '@/domain/activity'
+import { deriveTaskSnapshots } from '@/domain/progress'
+import type { AdvisorFallbackReason, Recommendation } from '@/domain/recommendation'
 import type { Milestone } from '@/types/platform'
 
 /**
@@ -50,6 +54,208 @@ const weekBars = computed(() => {
     hot: i === list.length - 1,
   }))
 })
+
+/* -------------------------------------------------------- 下一步建议 */
+
+/**
+ * 建议区
+ * ----------------------------------------------------------------------------
+ * 页面只调 store.refreshRecommendations：不直接 fetch、不拼后端地址、不碰任何密钥。
+ * 六种状态的文案见 docs/contracts.md 5.3；错误一律映射成人话（5.2 要求不显示英文码）。
+ */
+
+/** 服务端规则兜底的原因 → 人话 */
+const FALLBACK_REASON_TEXT: Record<AdvisorFallbackReason, string> = {
+  MODEL_TIMEOUT: '模型响应超时',
+  MODEL_UNAVAILABLE: '模型服务暂时不可用',
+  MODEL_NOT_CONFIGURED: '服务端还没接入模型',
+  INVALID_MODEL_OUTPUT: '模型返回的内容不符合要求',
+  RATE_LIMITED: '请求太频繁',
+}
+
+/** 错误码 → 人话（含适配层的前端内部码；保留码也先留文案） */
+const ERROR_TEXT: Record<string, string> = {
+  INVALID_INPUT: '当前项目数据不符合接口要求',
+  RATE_LIMITED: '请求太频繁，稍等再试',
+  MODEL_TIMEOUT: '模型响应超时',
+  INVALID_MODEL_OUTPUT: '模型返回的内容不符合要求',
+  MODEL_UNAVAILABLE: '模型服务暂时不可用',
+  MODEL_NOT_CONFIGURED: '服务端还没接入模型',
+  NETWORK_ERROR: '连不上后端服务',
+  INTERNAL: '服务端内部错误',
+  STALE_REVISION: '项目版本和服务端对不上',
+  UNAUTHORIZED: '没有通过服务端校验',
+}
+
+const aiStatus = computed(() => store.aiStatus)
+const isRequesting = computed(() => store.aiStatus === 'loading')
+
+/** 兜底/失败原因：优先用响应里的 fallbackReason，其次用适配层保留的错误码 */
+const reasonText = computed(() => {
+  const fallbackReason = store.advisor.fallbackReason
+  if (fallbackReason !== null) return FALLBACK_REASON_TEXT[fallbackReason]
+
+  const code = store.aiError?.code
+  if (code !== undefined) {
+    const text = ERROR_TEXT[code]
+    if (text !== undefined) return text
+  }
+  return '原因未知'
+})
+
+const statusLine = computed(() => {
+  switch (store.aiStatus) {
+    case 'idle':
+      return '还没有建议。点一下「获取建议」，AI 会结合项目当前状态、最近证据和未解决的疑问，给出 1～3 条下一步建议。'
+    case 'loading':
+      return '正在分析项目状态…'
+    case 'model':
+      return '以下建议由 AI 模型生成。展开「依据」可以看到它引用的是哪条证据或疑问。'
+    case 'fallback':
+      return `模型这次没能给出结果，下面是服务端规则生成的建议（原因：${reasonText.value}）。`
+    case 'local-rule':
+      return `后端这次不可用，下面是本地规则生成的建议（原因：${reasonText.value}）。`
+    case 'error':
+      return `建议没有生成出来：${reasonText.value}。可以重试，也可以先按自己的判断推进。`
+    default:
+      return ''
+  }
+})
+
+const statusStyle = computed(() => {
+  switch (store.aiStatus) {
+    case 'fallback':
+      return 'background:#FAEEDA;border-color:#FAC775;color:#854F0B;'
+    case 'local-rule':
+      return 'background:#f1efe8;border-color:#d3d1c7;color:#5f5e5a;'
+    case 'error':
+      return 'background:#FCEBEB;border-color:#F7C1C1;color:#A32D2D;'
+    default:
+      return ''
+  }
+})
+
+const statusTag = computed(() => {
+  switch (store.aiStatus) {
+    case 'idle':
+      return '未获取'
+    case 'loading':
+      return '分析中'
+    case 'model':
+      return 'AI 模型'
+    case 'fallback':
+      return '服务端规则'
+    case 'local-rule':
+      return '本地规则'
+    case 'error':
+      return '生成失败'
+    default:
+      return ''
+  }
+})
+
+const requestLabel = computed(() => {
+  if (isRequesting.value) return '分析中…'
+  if (store.aiStatus === 'idle') return '获取建议'
+  if (store.aiStatus === 'error' || store.aiStatus === 'local-rule') return '重试'
+  return '重新获取'
+})
+
+/** 契约 5.3：loading 期间禁止重复点击触发并发请求 */
+function requestSuggestions() {
+  if (isRequesting.value) return
+
+  void store
+    .refreshRecommendations({ forceRefresh: store.aiStatus !== 'idle' })
+    .catch((error: unknown) => {
+      // store 内部已处理大多数失败，这里只兜住"请求还没发出去就出错"的异常
+      console.warn('[建议] 请求未能完成', error instanceof Error ? error.name : 'unknown')
+      store.toast('建议请求没能完成，请稍后再试')
+    })
+}
+
+/**
+ * 把建议里的 ID 解析回本地数据。
+ * 复用 domain 里那套派生函数（ID 的生成规则只有一处），所以解析结果与发出请求时的 ID 必然一致；
+ * 这里不自己解析 ID 字符串。
+ */
+const derived = computed(() => {
+  const p = project.value
+  if (!p) return null
+
+  const reference = new Date()
+  const tasks = deriveTaskSnapshots(p, reference)
+  const evidence = deriveEvidenceSnapshots(p, reference)
+  const doubts = deriveDoubtSnapshots(p, reference)
+
+  return {
+    taskIndexById: new Map(tasks.map((task, index) => [task.taskId, index])),
+    evidenceById: new Map(
+      evidence.map((item, index) => [
+        item.evidenceId,
+        { id: item.evidenceId, time: p.evidence[index]?.time ?? '', text: item.didWhat },
+      ]),
+    ),
+    doubtById: new Map(doubts.map((item) => [item.doubtId, { id: item.doubtId, text: item.text }])),
+  }
+})
+
+/** 契约 5.4 第 4 条：同一条建议重复点击只认领一次 */
+const claimedIds = ref<string[]>([])
+
+watch(
+  () => store.curIdx,
+  () => {
+    claimedIds.value = []
+  },
+)
+
+type ClaimState = 'claimable' | 'claimed' | 'draft-unavailable'
+
+function claimStateOf(suggestion: Recommendation): ClaimState {
+  if (claimedIds.value.includes(suggestion.id)) return 'claimed'
+  if (suggestion.existingTaskId === null) return 'draft-unavailable'
+  return 'claimable'
+}
+
+const suggestionViews = computed(() =>
+  store.recommendations.map((suggestion, index) => {
+    const d = derived.value
+    return {
+      suggestion,
+      index,
+      claimState: claimStateOf(suggestion),
+      evidence:
+        d === null
+          ? []
+          : suggestion.basisEvidenceIds.map(
+              (id) => d.evidenceById.get(id) ?? { id, time: '', text: '（本次请求里没有这条证据）' },
+            ),
+      doubts:
+        d === null
+          ? []
+          : suggestion.basisDoubtIds.map(
+              (id) => d.doubtById.get(id) ?? { id, text: '（本次请求里没有这条疑问）' },
+            ),
+    }
+  }),
+)
+
+/** 认领已有任务（新任务候选择由卡片自己禁用按钮，这里不会再被调到） */
+function claimSuggestion(suggestion: Recommendation) {
+  const taskId = suggestion.existingTaskId
+  if (taskId === null) return
+  if (claimedIds.value.includes(suggestion.id)) return
+
+  const index = derived.value?.taskIndexById.get(taskId)
+  if (index === undefined) {
+    store.toast('这条建议对应的任务已经不在当前项目里，请重新获取建议')
+    return
+  }
+
+  store.claimStep(index)
+  claimedIds.value = [...claimedIds.value, suggestion.id]
+}
 
 /* -------------------------------------------------------------- 材料 */
 
@@ -260,6 +466,44 @@ function submitEvidence() {
 
       <!-- ---------------------------------------------------------- 中栏 -->
       <div>
+        <!-- 建议区：六种状态与文案见 docs/contracts.md 5.3，请求只经过 store -->
+        <div class="card" style="margin-bottom:14px;">
+          <div class="card-h">
+            AI 下一步建议
+            <span class="tag" style="background:#E6F1FB;color:#185FA5;border:1px solid #B5D4F4;">
+              {{ statusTag }}
+            </span>
+          </div>
+          <div class="card-b">
+            <div class="ai-banner" :style="statusStyle">{{ statusLine }}</div>
+
+            <div class="sc-actions" style="margin-top:0;margin-bottom:4px;">
+              <button class="btn primary" :disabled="isRequesting" @click="requestSuggestions">
+                {{ requestLabel }}
+              </button>
+            </div>
+
+            <SuggestionCard
+              v-for="view in suggestionViews"
+              :key="view.suggestion.id"
+              :suggestion="view.suggestion"
+              :index="view.index"
+              :claim-state="view.claimState"
+              :evidence="view.evidence"
+              :doubts="view.doubts"
+              @claim="claimSuggestion(view.suggestion)"
+            />
+
+            <div
+              v-if="!suggestionViews.length && !isRequesting && aiStatus !== 'error'"
+              class="empty"
+              style="padding:4px 0 0;"
+            >
+              {{ aiStatus === 'idle' ? '点上方按钮开始。' : '这次没有生成建议，可以点上方按钮重新获取。' }}
+            </div>
+          </div>
+        </div>
+
         <div class="card" style="margin-bottom:14px;">
           <div class="card-h">
             AI 项目顾问
