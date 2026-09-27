@@ -12,9 +12,17 @@ const store = useWorkbenchStore()
 
 const topic = ref('')
 const customName = ref('')
-const members = ref('3 人')
+/** 契约 3.2：members 是数字，不再是「3 人」这类展示字符串 */
+const members = ref(3)
 const manual = ref<string | null>(null)
 const data = ref<string | null>(null)
+
+/** 创建失败码 → 人话。页面只看 result.ok / result.code */
+const CREATE_ERROR_TEXT: Record<string, string> = {
+  INVALID_INPUT: '请先选择项目题目或填写自定义名称',
+  NOT_FOUND: '没有找到这个题目，请重新选择',
+  STORAGE_FULL: '本地存储空间不足，项目没有保存',
+}
 
 const manualInput = ref<HTMLInputElement | null>(null)
 const dataInput = ref<HTMLInputElement | null>(null)
@@ -29,14 +37,25 @@ function pick(event: Event, kind: 'manual' | 'data') {
   else data.value = file.name
 }
 
+/** 契约 3.2：createProject 用 topicId / members:number / manualName / dataName */
 function submit() {
-  store.createProject({
-    topic: topic.value,
+  const result = store.createProject({
+    topicId: topic.value,
     customName: customName.value,
     members: members.value,
-    manual: manual.value,
-    data: data.value,
+    manualName: manual.value,
+    dataName: data.value,
   })
+
+  if (!result.ok) {
+    store.toast(CREATE_ERROR_TEXT[result.code] ?? '项目创建失败，请检查填写内容')
+    return
+  }
+
+  // 用返回的 projectId / projectRevision 落到当前项目（store 已选中，这里只做兜底对齐）
+  if (store.current?.projectId !== result.data.projectId) {
+    store.selectProject(result.data.projectId)
+  }
 }
 </script>
 
@@ -62,11 +81,11 @@ function submit() {
         </div>
 
         <label>小组人数</label>
-        <select v-model="members">
-          <option>3 人</option>
-          <option>2 人</option>
-          <option>4 人</option>
-          <option>5 人</option>
+        <select v-model.number="members">
+          <option :value="3">3 人</option>
+          <option :value="2">2 人</option>
+          <option :value="4">4 人</option>
+          <option :value="5">5 人</option>
         </select>
 
         <label>上传项目材料 <small>（AI 会解析这些内容，用于生成和追踪步骤）</small></label>
