@@ -99,6 +99,8 @@ function normalizeTask(raw: unknown, projectId: string, nowIso: string): Task | 
     suggestedOwner: asNullableString(raw.suggestedOwner ?? raw.owner),
     milestone: asNullableString(raw.milestone),
     why: asNullableString(raw.why),
+    // v1 → v2：旧数据没有 draftKey，补 null；模板任务与认领已有任务也不需要它
+    draftKey: asNullableString(raw.draftKey),
     createdAt: asString(raw.createdAt, nowIso),
     updatedAt: asString(raw.updatedAt, nowIso),
   }
@@ -147,8 +149,13 @@ function normalizeDoubt(raw: unknown, projectId: string, nowIso: string): Doubt 
  *
  * 迁移策略：
  *   - `schemaVersion` 高于当前版本 → 来自更新的代码，**返回 null**；
- *   - `schemaVersion` 缺失或低于当前版本 → 按当前结构补齐缺失字段（本轮只有 v1）；
+ *   - `schemaVersion` 缺失或低于当前版本 → 按当前结构补齐缺失字段；
  *   - 逐条记录归一化，坏记录丢弃、好记录保留，不会因为一条坏数据丢掉整个项目。
+ *
+ * 已知版本分支：
+ *   - v1 → v2：任务新增 `draftKey`（draft 幂等键）。旧任务没有该字段，
+ *     由 `normalizeTask` 补 `null`，因此旧数据可以原样恢复、不需要重建任务；
+ *     下一次写入时信封版本自动升为 v2。
  */
 export function migrateProject(raw: unknown): Project | null {
   if (!isPlainObject(raw)) return null

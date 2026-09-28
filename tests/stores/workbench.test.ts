@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { STORAGE_KEY_PROJECTS } from '@/stores/persistence'
+import { CURRENT_SCHEMA_VERSION, STORAGE_KEY_PROJECTS } from '@/stores/persistence'
 import { useWorkbenchStore } from '@/stores/workbench'
+import type { AdvisorRecommendationsRequest, NewTaskDraft } from '@/domain/recommendation'
 
 const CUSTOM_TOPIC = '__custom__'
 
@@ -101,7 +102,7 @@ describe('createProject：创建与持久化', () => {
     const project = currentProject(store)
     expect(project.projectId).toBe(result.data.projectId)
     expect(project.projectRevision).toBe(1)
-    expect(project.schemaVersion).toBe(1)
+    expect(project.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
   })
 
   it('模板步骤实例化为结构化任务：全部 todo，线上 owner 为 null', () => {
@@ -907,6 +908,379 @@ describe('刷新的建议结果不会污染项目状态', () => {
       }
       for (const id of suggestion.basisEvidenceIds) expect(knownEvidenceIds.has(id)).toBe(true)
       for (const id of suggestion.basisDoubtIds) expect(knownDoubtIds.has(id)).toBe(true)
+    }
+  })
+})
+
+/* ------------------------------------------------------------------ 测试替身 */
+
+/** 构造一条回显指定请求身份的成功响应，便于精确控制「过期」发生在哪个维度 */
+function advisorSuccessResponse(
+  identity: Pick<AdvisorRecommendationsRequest, 'requestId' | 'projectId' | 'projectRevision'>,
+  title: string,
+): Response {
+  return new Response(
+    JSON.stringify({
+      contractVersion: '1.0',
+      requestId: identity.requestId,
+      projectId: identity.projectId,
+      projectRevision: identity.projectRevision,
+      source: 'model',
+      fallbackReason: null,
+      cached: false,
+      promptVersion: 'mvp-prompt-v1',
+      suggestions: [
+        {
+          title,
+          whyNow: '测试用',
+          doneCriteria: '测试用',
+          existingTaskId: null,
+          basisEvidenceIds: [],
+          basisDoubtIds: [],
+        },
+      ],
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  )
+}
+
+/** 不可重试的契约错误：让 store 直接落到本地规则，得到确定性的实际结果状态 */
+function advisorContractErrorResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      contractVersion: '1.0',
+      requestId: null,
+      code: 'INVALID_INPUT',
+      message: '测试替身',
+      retryable: false,
+      retryAfterSeconds: null,
+    }),
+    { status: 400, headers: { 'content-type': 'application/json' } },
+  )
+}
+
+function requestBodyOf(init: RequestInit | undefined): AdvisorRecommendationsRequest {
+  return JSON.parse(String(init?.body)) as AdvisorRecommendationsRequest
+}
+
+/** 有界等待建议状态离开 loading，不依赖真实网络，也不会长时间阻塞 */
+async function waitUntilNotLoading(store: Store): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (store.aiStatus !== 'loading') return
+    await new Promise((resolve) => setTimeout(resolve, 1))
+  }
+}
+
+/* -------------------------------------------------------------- F1 回归测试 */
+/* 契约 4.7 补充约定 2、3：过期响应不得覆盖当前状态，也不得留下没有在途请求却永久 loading */
+
+describe('F1 回归：状态变化后旧响应被丢弃，loading 不得永久停留', () => {
+  it('同一项目 revision 变化且无新请求时，替代请求接管并收敛到实际结果状态', async () => {
+    const store = freshStore()
+    createCustomProjectOrThrow(store)
+    const project = currentProject(store)
+    const task = project.tasks[0]
+    if (task === undefined) throw new Error('缺少任务')
+
+    const bodies: AdvisorRecommendationsRequest[] = []
+    const releases: Array<((response: Response) => void) | undefined> = []
+    const fetchImpl = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      const body = requestBodyOf(init)
+      bodies.push(body)
+      if (bodies.length === 1) {
+        // 第一次请求挂起，由测试决定何时返回
+        return await new Promise<Response>((resolve) => {
+          releases[0] = resolve
+        })
+      }
+      // 替代请求：不可重试的契约错误 → 本地规则兜底
+      return advisorContractErrorResponse()
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+
+    const pending = store.refreshRecommendations()
+    const firstBody = bodies[0]
+    if (firstBody === undefined) throw new Error('第一次请求没有发出')
+    expect(store.aiStatus).toBe('loading')
+
+    // 期间项目状态变化（认领任务 → projectRevision + 1），且没有任何新的建议请求
+    store.claimTask({ taskId: task.id })
+    const revisionAfterClaim = project.projectRevision
+    expect(revisionAfterClaim).toBe(firstBody.projectRevision + 1)
+
+    // 旧响应按第一次请求的身份返回（版本已落后）
+    releases[0]?.(advisorSuccessResponse(firstBody, '这条建议来自过期响应'))
+
+    expect(await pending).toMatchObject({ ok: false, code: 'STALE_RESPONSE' })
+
+    // 替代请求接管状态：最终必须是实际结果状态，不能停在 loading，也不能只靠设 idle 蒙过去
+    await waitUntilNotLoading(store)
+    expect(store.aiStatus).toBe('local-rule')
+    expect(['model', 'fallback', 'local-rule', 'error']).toContain(store.aiStatus)
+
+    // 契约 4.7 补充约定 1：过期响应不得写入建议，也不得改动项目数据
+    expect(store.recommendations.some((item) => item.title === '这条建议来自过期响应')).toBe(false)
+    expect(project.projectRevision).toBe(revisionAfterClaim)
+    // 替代请求确实发出过
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('已有更新的请求在途时，旧请求静默结束且不改变新请求的状态', async () => {
+    const store = freshStore()
+    createCustomProjectOrThrow(store)
+
+    const bodies: AdvisorRecommendationsRequest[] = []
+    const releases: Array<((response: Response) => void) | undefined> = []
+    const fetchImpl = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      const body = requestBodyOf(init)
+      bodies.push(body)
+      const index = bodies.length - 1
+      return await new Promise<Response>((resolve) => {
+        releases[index] = resolve
+      })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+
+    const first = store.refreshRecommendations()
+    const second = store.refreshRecommendations()
+    const firstBody = bodies[0]
+    const secondBody = bodies[1]
+    if (firstBody === undefined || secondBody === undefined) throw new Error('请求没有发出')
+    expect(store.aiStatus).toBe('loading')
+
+    // 旧请求先返回：必须静默丢弃，不能把新请求的 loading 改成 idle 或其他状态
+    releases[0]?.(advisorSuccessResponse(firstBody, '旧请求的建议'))
+    expect(await first).toMatchObject({ ok: false, code: 'STALE_RESPONSE' })
+    expect(store.aiStatus).toBe('loading')
+    expect(store.recommendations).toHaveLength(0)
+
+    // 新请求返回后由它接管状态
+    releases[1]?.(advisorSuccessResponse(secondBody, '最新请求的建议'))
+    const secondResult = await second
+
+    expect(secondResult.ok).toBe(true)
+    expect(store.aiStatus).toBe('model')
+    expect(store.recommendations.map((item) => item.title)).toEqual(['最新请求的建议'])
+  })
+
+  it('服务端回显与本次请求不符且版本未变时，回到可重试的 idle 且不再重复请求', async () => {
+    const store = freshStore()
+    createCustomProjectOrThrow(store)
+    const bodies: AdvisorRecommendationsRequest[] = []
+    const fetchImpl = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      const body = requestBodyOf(init)
+      bodies.push(body)
+      // requestId 对不上 → 过期响应
+      return advisorSuccessResponse({ ...body, requestId: 'other-request-id' }, '过期建议')
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+
+    const result = await store.refreshRecommendations()
+
+    expect(result).toMatchObject({ ok: false, code: 'STALE_RESPONSE' })
+    expect(store.aiStatus).toBe('idle')
+    expect(store.recommendations).toHaveLength(0)
+    // 版本没有变化，不应该再发替代请求
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+})
+
+/* -------------------------------------------------------------- F2 回归测试 */
+/* 契约 3.2 约束 4：同一项目内字段完全相同的 draft 重复提交必须幂等 */
+
+describe('F2 回归：相同 draft 重复认领必须幂等', () => {
+  const baseDraft: NewTaskDraft = {
+    title: '整理 ERA5 下载脚本',
+    doneCriteria: '脚本能跑通并产出一段样例数据',
+    requestId: 'req-abc',
+    basisEvidenceIds: ['evd_1', 'evd_2'],
+    basisDoubtIds: ['dbt_1'],
+  }
+
+  function draftOf(overrides: Partial<NewTaskDraft> = {}): NewTaskDraft {
+    return { ...baseDraft, ...overrides }
+  }
+
+  /** 让后续的写盘操作可计数，用于验证「命中时不重复持久化」 */
+  function countSetItemCalls(): () => number {
+    const storage = createMemoryStorage()
+    const originalSetItem = storage.setItem
+    let calls = 0
+    storage.setItem = (key: string, value: string) => {
+      calls += 1
+      originalSetItem(key, value)
+    }
+    vi.stubGlobal('localStorage', storage)
+    return () => calls
+  }
+
+  it('连续两次相同 draft 只创建一条任务，返回同一个 taskId，revision 只加一次', () => {
+    const store = freshStore()
+    createCustomProjectOrThrow(store)
+    const project = currentProject(store)
+    const countBefore = project.tasks.length
+    const revisionBefore = project.projectRevision
+
+    const first = store.claimTask({ draft: draftOf() })
+    const revisionAfterFirst = project.projectRevision
+    const second = store.claimTask({ draft: draftOf() })
+
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(second.data.taskId).toBe(first.data.taskId)
+    expect(project.tasks).toHaveLength(countBefore + 1)
+    expect(revisionAfterFirst).toBe(revisionBefore + 1)
+    expect(project.projectRevision).toBe(revisionAfterFirst)
+  })
+
+  it('同一 tick 内并发调用相同 draft 也只创建一条任务（竞态）', async () => {
+    const store = freshStore()
+    createCustomProjectOrThrow(store)
+    const project = currentProject(store)
+    const countBefore = project.tasks.length
+    const revisionBefore = project.projectRevision
+
+    const results = await Promise.all([
+      Promise.resolve().then(() => store.claimTask({ draft: draftOf() })),
+      Promise.resolve().then(() => store.claimTask({ draft: draftOf() })),
+      Promise.resolve().then(() => store.claimTask({ draft: draftOf() })),
+    ])
+
+    const taskIds = results.map((item) => (item.ok ? item.data.taskId : 'failed'))
+    expect(new Set(taskIds).size).toBe(1)
+    expect(project.tasks).toHaveLength(countBefore + 1)
+    expect(project.projectRevision).toBe(revisionBefore + 1)
+  })
+
+  it('命中已有任务时不重复持久化', () => {
+    const store = freshStore()
+    createCustomProjectOrThrow(store)
+    store.claimTask({ draft: draftOf() })
+
+    const setItemCalls = countSetItemCalls()
+    const second = store.claimTask({ draft: draftOf() })
+
+    expect(second.ok).toBe(true)
+    expect(setItemCalls()).toBe(0)
+  })
+
+  it('去重身份覆盖 draft 的全部语义字段，任一不同都创建新任务', () => {
+    const store = freshStore()
+    createCustomProjectOrThrow(store)
+    const project = currentProject(store)
+    const countBefore = project.tasks.length
+
+    const variants: NewTaskDraft[] = [
+      draftOf({ title: '另一个标题' }),
+      draftOf({ doneCriteria: '另一个完成标志' }),
+      draftOf({ requestId: 'req-other' }),
+      draftOf({ requestId: null }),
+      draftOf({ basisEvidenceIds: ['evd_1'] }),
+      draftOf({ basisDoubtIds: [] }),
+    ]
+
+    const taskIds = new Set<string>()
+    for (const variant of variants) {
+      const result = store.claimTask({ draft: variant })
+      expect(result.ok).toBe(true)
+      if (result.ok) taskIds.add(result.data.taskId)
+    }
+
+    expect(taskIds.size).toBe(variants.length)
+    expect(project.tasks).toHaveLength(countBefore + variants.length)
+  })
+
+  it('依据 ID 顺序不同仍视为同一 draft（键经过规范化）', () => {
+    const store = freshStore()
+    createCustomProjectOrThrow(store)
+    const project = currentProject(store)
+    const countBefore = project.tasks.length
+
+    const first = store.claimTask({ draft: draftOf({ basisEvidenceIds: ['evd_1', 'evd_2'] }) })
+    const second = store.claimTask({ draft: draftOf({ basisEvidenceIds: ['evd_2', 'evd_1'] }) })
+
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(second.data.taskId).toBe(first.data.taskId)
+    expect(project.tasks).toHaveLength(countBefore + 1)
+  })
+
+  it('不同项目之间的相同 draft 各自创建任务（去重限定在同一项目内）', () => {
+    const store = freshStore()
+    createCustomProjectOrThrow(store, '项目一')
+    const first = store.claimTask({ draft: draftOf() })
+    const firstProjectTaskCount = currentProject(store).tasks.length
+
+    createCustomProjectOrThrow(store, '项目二')
+    const second = store.claimTask({ draft: draftOf() })
+
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(second.data.taskId).not.toBe(first.data.taskId)
+    expect(currentProject(store).tasks.some((item) => item.id === second.data.taskId)).toBe(true)
+    expect(store.projects[0]?.tasks).toHaveLength(firstProjectTaskCount)
+  })
+
+  it('刷新恢复后相同 draft 仍命中同一条任务（幂等键已持久化）', () => {
+    const store = freshStore()
+    createCustomProjectOrThrow(store)
+    const first = store.claimTask({ draft: draftOf() })
+    if (!first.ok) throw new Error('第一次认领失败')
+
+    // 重建 store 相当于刷新页面：localStorage 保留
+    const reloaded = freshStore()
+    const project = currentProject(reloaded)
+    const countBefore = project.tasks.length
+
+    const second = reloaded.claimTask({ draft: draftOf() })
+
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+    expect(second.data.taskId).toBe(first.data.taskId)
+    expect(project.tasks).toHaveLength(countBefore)
+  })
+
+  it('模板任务与认领已有任务没有幂等键，draft 任务带键', () => {
+    const store = freshStore()
+    createCustomProjectOrThrow(store)
+    const project = currentProject(store)
+
+    expect(project.tasks.every((item) => item.draftKey === null)).toBe(true)
+
+    const created = store.claimTask({ draft: draftOf() })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const task = project.tasks.find((item) => item.id === created.data.taskId)
+    expect(typeof task?.draftKey).toBe('string')
+  })
+
+  it('draft 幂等键不进入 advisor 请求快照', async () => {
+    const store = freshStore()
+    createCustomProjectOrThrow(store)
+    store.claimTask({ draft: draftOf() })
+
+    const bodies: AdvisorRecommendationsRequest[] = []
+    const fetchImpl = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      bodies.push(requestBodyOf(init))
+      return advisorContractErrorResponse()
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+
+    await store.refreshRecommendations()
+
+    const tasks = bodies[0]?.tasks ?? []
+    expect(tasks.length).toBeGreaterThan(0)
+    expect(Object.keys(tasks[0] ?? {}).sort()).toEqual(
+      ['doneCriteria', 'milestone', 'owner', 'status', 'taskId', 'title', 'updatedAt'].sort(),
+    )
+    for (const task of tasks) {
+      expect(task).not.toHaveProperty('draftKey')
+      expect(task).not.toHaveProperty('why')
+      expect(task).not.toHaveProperty('suggestedOwner')
+      expect(task.owner).toBeNull()
     }
   })
 })

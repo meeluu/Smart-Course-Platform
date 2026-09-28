@@ -533,6 +533,41 @@ describe('结果判断辅助', () => {
   })
 })
 
+/* -------------------------------------------------------------- F3 回归测试 */
+/* 契约 7.5：默认单次请求 30 秒；契约 6.1：超时仍只自动重试 1 次 */
+
+describe('F3 回归：默认 30 秒超时下的重试行为不变', () => {
+  it('默认超时下，超时仍只重试 1 次（共 2 次请求），不扩大重试', async () => {
+    vi.useFakeTimers()
+    const fetchImpl = vi.fn(hangingFetch)
+
+    const pending = fetchRecommendations(makeRequest(), { fetchImpl })
+    // 第一次 30 秒超时 → 退避 1 秒 → 第二次再 30 秒超时
+    await vi.advanceTimersByTimeAsync(70_000)
+
+    const error = expectError(await pending)
+
+    expect(error.code).toBe('NETWORK_ERROR')
+    expect(error.cause).toBe('timeout')
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('默认超时超时后仍按契约切到本地规则，且不会发起更多请求', async () => {
+    vi.useFakeTimers()
+    const fetchImpl = vi.fn(hangingFetch)
+
+    const pending = fetchRecommendations(makeRequest(), { fetchImpl })
+    await vi.advanceTimersByTimeAsync(200_000)
+
+    const error = expectError(await pending)
+
+    expect(error.retryable).toBe(true)
+    expect(shouldFallbackToLocalRule(error)).toBe(true)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
 function emptyError(): AdvisorApiError {
   return {
     code: 'NETWORK_ERROR',

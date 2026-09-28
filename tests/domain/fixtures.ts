@@ -28,6 +28,7 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     suggestedOwner: '成员A',
     milestone: '选题确认与文献调研',
     why: '目标不清会导致返工',
+    draftKey: null,
     createdAt: FIXED_ISO,
     updatedAt: FIXED_ISO,
     ...overrides,

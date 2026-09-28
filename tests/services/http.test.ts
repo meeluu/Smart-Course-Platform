@@ -74,8 +74,8 @@ describe('地址解析', () => {
     expect(resolveApiBaseUrl(undefined)).toBe(DEFAULT_API_BASE_URL)
   })
 
-  it('契约 7.5：默认超时为 20 秒', () => {
-    expect(DEFAULT_TIMEOUT_MS).toBe(20_000)
+  it('契约 7.5：默认超时为 30 秒', () => {
+    expect(DEFAULT_TIMEOUT_MS).toBe(30_000)
   })
 })
 
@@ -182,5 +182,42 @@ describe('requestJson：失败路径', () => {
     await vi.advanceTimersByTimeAsync(50)
 
     expect(await pending).toEqual({ ok: false, status: null, cause: 'timeout', data: null })
+  })
+})
+
+/* -------------------------------------------------------------- F3 回归测试 */
+/* 契约 7.5：前端适配层单次请求目标为 30 秒（比服务层 25 秒安全网多 5 秒） */
+
+describe('F3 回归：默认单次请求超时为 30 秒', () => {
+  it('默认超时常量为 30 秒', () => {
+    expect(DEFAULT_TIMEOUT_MS).toBe(30_000)
+  })
+
+  it('使用默认配置时，29.999 秒不判超时，30 秒按契约映射为超时', async () => {
+    vi.useFakeTimers()
+
+    // 不传 timeoutMs，走默认配置
+    const pending = requestJson('/x', { fetchImpl: hangingFetch })
+
+    let settled = false
+    void pending.then(() => {
+      settled = true
+    })
+
+    await vi.advanceTimersByTimeAsync(29_999)
+    expect(settled).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await pending).toEqual({ ok: false, status: null, cause: 'timeout', data: null })
+  })
+
+  it('超时后不留下计时器：清理掉内部定时器后仍能正常完成', async () => {
+    vi.useFakeTimers()
+
+    const pending = requestJson('/x', { fetchImpl: hangingFetch })
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    expect(await pending).toEqual({ ok: false, status: null, cause: 'timeout', data: null })
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

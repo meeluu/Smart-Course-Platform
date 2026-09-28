@@ -53,7 +53,8 @@ describe('存储键与版本常量', () => {
   it('使用约定的 key 与当前 schemaVersion', () => {
     expect(STORAGE_KEY_PROJECTS).toBe('scp.mvp.projects')
     expect(STORAGE_KEY_CURRENT_PROJECT_ID).toBe('scp.mvp.currentProjectId')
-    expect(CURRENT_SCHEMA_VERSION).toBe(1)
+    // v2：任务新增 draftKey（契约 3.2 约束 4 的 draft 幂等键）
+    expect(CURRENT_SCHEMA_VERSION).toBe(2)
   })
 })
 
@@ -281,6 +282,72 @@ describe('loadPersistedState：读取与容错', () => {
 
     const revisions = loadPersistedState().projects.map((item) => item.projectRevision)
     expect(revisions).toEqual([1, 1, 12])
+  })
+})
+
+describe('v1 → v2 迁移：任务新增 draftKey', () => {
+  it('v1 数据可以原样恢复，旧任务补 draftKey 为 null', () => {
+    writeEnvelope({
+      schemaVersion: 1,
+      projects: [
+        {
+          projectId: 'prj_v1',
+          name: '旧项目',
+          schemaVersion: 1,
+          projectRevision: 3,
+          tasks: [
+            { id: 'tsk_1', title: '旧任务', status: 'doing' },
+            { id: 'tsk_2', title: '已完成的任务', status: 'done' },
+          ],
+        },
+      ],
+    })
+
+    const [project] = loadPersistedState().projects
+
+    expect(project?.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    expect(project?.tasks.map((item) => item.id)).toEqual(['tsk_1', 'tsk_2'])
+    expect(project?.tasks.map((item) => item.draftKey)).toEqual([null, null])
+    // 迁移不能改坏旧数据的状态与版本
+    expect(project?.tasks[0]?.status).toBe('doing')
+    expect(project?.tasks[1]?.status).toBe('done')
+    expect(project?.projectRevision).toBe(3)
+  })
+
+  it('migrateProject 对缺失 draftKey 的任务补 null，已有 draftKey 原样保留', () => {
+    const migrated = migrateProject({
+      projectId: 'prj_1',
+      name: '项目',
+      schemaVersion: 1,
+      tasks: [
+        { id: 'tsk_old', title: '旧任务' },
+        { id: 'tsk_new', title: '新任务', draftKey: '["T",null,null,[],[]]' },
+      ],
+    })
+
+    expect(migrated?.tasks[0]?.draftKey).toBeNull()
+    expect(migrated?.tasks[1]?.draftKey).toBe('["T",null,null,[],[]]')
+  })
+
+  it('迁移后再次保存时信封版本升为当前版本', () => {
+    writeEnvelope({
+      schemaVersion: 1,
+      projects: [{ projectId: 'prj_v1', name: '旧项目', schemaVersion: 1 }],
+    })
+
+    const state = loadPersistedState()
+    savePersistedState(state.projects, state.currentProjectId)
+
+    const envelope = JSON.parse(localStorage.getItem(STORAGE_KEY_PROJECTS) ?? '') as {
+      schemaVersion: number
+    }
+    expect(envelope.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+  })
+
+  it('高于当前版本的数据仍被拒绝（新增迁移分支不放宽版本上限）', () => {
+    expect(
+      migrateProject({ projectId: 'prj_x', name: 'X', schemaVersion: CURRENT_SCHEMA_VERSION + 1 }),
+    ).toBeNull()
   })
 })
 

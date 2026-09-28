@@ -43,8 +43,11 @@ export type DoubtStatus = 'open' | 'resolved'
 /**
  * localStorage 结构版本常量。
  * 结构发生不兼容变更时 +1，并在 `src/stores/persistence.ts` 里补一条迁移分支。
+ *
+ * v2：任务新增 `draftKey`（契约 3.2 约束 4 的 draft 幂等键）。
+ *     旧数据（v1）里没有该字段，迁移时统一补 `null`，不影响既有任务与旧数据恢复。
  */
-export const PROJECT_SCHEMA_VERSION = 1
+export const PROJECT_SCHEMA_VERSION = 2
 
 /**
  * 契约 2.2：任务。
@@ -72,6 +75,12 @@ export interface Task {
   milestone: string | null
   /** 旧页面展示用的「为什么现在做」，不参与请求 */
   why: string | null
+  /**
+   * 纯本地的 draft 幂等键（契约 3.2 约束 4）：
+   * 由 `NewTaskDraft` 的语义字段规范化后生成，同一项目内键相同即为同一任务。
+   * 模板任务与认领已有任务为 `null`；**不进请求体**（TaskSnapshot 不含它）。
+   */
+  draftKey: string | null
   createdAt: string
   updatedAt: string
 }
