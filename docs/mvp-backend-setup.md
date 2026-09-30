@@ -184,7 +184,7 @@ npm test
 | `test/advisor-recommendations.test.ts` | 建议接口的 HTTP 行为：请求校验、错误响应、引用清理、兜底、405/404 |
 | `test/advisor-service.test.ts` | 校验层与服务层：不补默认值、截断与丢弃规则、超时/失败映射、兜底失败 |
 | `test/advisor-model-provider.test.ts` | 真实 provider：请求形态、响应解析、各类失败映射、超时中断、不泄露密钥 |
-| `test/cors.test.ts` | 生产来源的 OPTIONS/POST CORS 头，以及其他来源的拒绝行为 |
+| `test/cors.test.ts` | 生产与本地开发来源的 OPTIONS/POST CORS 头，以及其他来源的拒绝行为 |
 
 ## 6. 健康检查
 
