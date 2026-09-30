@@ -127,6 +127,28 @@ function normalizeNullable(value: string | null | undefined): string | null {
 }
 
 /**
+ * 契约 3.2 约束 4：同一项目内字段完全相同的 `draft` 重复提交必须幂等。
+ *
+ * 用规范化后的 draft 内容生成稳定键：字段顺序固定、ID 数组排序后再参与拼接，
+ * 因此「同一组引用、书写顺序不同」也会命中同一条任务；
+ * 标题、完成标志、来源请求与两组依据任一不同都会生成不同的键，不会误合并不同任务。
+ */
+function draftKeyOf(draft: NewTaskDraft): string {
+  const normalizeIds = (value: string[] | null | undefined): string[] => {
+    if (!Array.isArray(value)) return []
+    return value.map((item) => String(item)).sort()
+  }
+
+  return JSON.stringify([
+    draft.title.trim(),
+    isBlank(draft.doneCriteria) ? null : (draft.doneCriteria as string).trim(),
+    isBlank(draft.requestId) ? null : draft.requestId,
+    normalizeIds(draft.basisEvidenceIds),
+    normalizeIds(draft.basisDoubtIds),
+  ])
+}
+
+/**
  * 把真实状态（`tasks` / `evidenceRecords` / `doubtRecords`）投影成旧页面读的字段。
  * 每次本地写入成功后调用：**真实数据只有一份**，这三个数组永远是派生结果。
  */
@@ -186,6 +208,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   let inFlightToken = 0
   /** 在途请求的控制器：新请求会取消上一次（契约 4.7 第 4 条） */
   let inFlightAbort: AbortController | null = null
+  /**
+   * 在途请求的身份（序号 + 项目 + 版本）。
+   * 用于判断「是否已有更新的请求负责当前的项目与版本」（契约 4.7 补充约定 2、3）：
+   * 有更新请求时旧请求只能静默结束；没有时旧请求必须自己把 loading 收尾，不能留下永久 loading。
+   */
+  let inFlightRequest: { token: number; projectId: string; projectRevision: number } | null = null
 
   /** 当前项目的 projectId */
   const currentProjectId = computed<string | null>(() => current.value?.projectId ?? null)
@@ -375,6 +403,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       suggestedOwner: normalizeNullable(step.owner),
       milestone,
       why: normalizeNullable(step.why),
+      // 模板任务不是由 draft 创建的，没有幂等键
+      draftKey: null,
       createdAt: timestamp,
       updatedAt: timestamp,
     }))
@@ -550,6 +580,22 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         return localFailure('INVALID_INPUT', '任务标题不能为空')
       }
 
+      // 契约 3.2 约束 4：同一项目内字段完全相同的 draft 幂等。
+      // 命中时直接返回已有任务：不新增任务、不重复持久化、不递增 projectRevision。
+      // 去重范围限定在当前项目内，跨项目互不影响。
+      const draftKey = draftKeyOf(draft)
+      const existing = (project.tasks ?? []).find((item) => item.draftKey === draftKey)
+      if (existing !== undefined) {
+        return {
+          ok: true,
+          data: {
+            taskId: existing.id,
+            status: 'doing',
+            projectRevision: project.projectRevision,
+          },
+        }
+      }
+
       const timestamp = nowIso()
       const taskId = createTaskId()
       const task: Task = {
@@ -562,6 +608,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         suggestedOwner: null,
         milestone: currentMilestoneName(project),
         why: null,
+        draftKey,
         createdAt: timestamp,
         updatedAt: timestamp,
       }
@@ -1022,6 +1069,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     inFlightAbort = controller
     inFlightToken += 1
     const token = inFlightToken
+    inFlightRequest = { token, projectId, projectRevision }
 
     patchAdvisor(projectId, {
       status: 'loading',
@@ -1033,15 +1081,53 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       fallbackReason: null,
     })
 
-    /** 丢弃过期响应：当前项目的状态一律不动（契约 4.7 补充约定 1） */
+    /** 响应只有仍属于「最新请求」且仍匹配当前项目与版本时才允许写入（契约 4.7 第 1~4 条） */
+    const isStillCurrent = (): boolean =>
+      token === inFlightToken &&
+      currentProjectId.value === projectId &&
+      computeProjectRevision(project) === projectRevision
+
+    /**
+     * 丢弃过期响应。
+     *
+     * 契约 4.7 补充约定 1～3：
+     *   - 过期响应不得覆盖当前项目的 suggestions / aiError / 任务 / 证据 / 疑问 / projectRevision；
+     *   - 已有更新的请求在途时，由那个请求负责 loading 与最终状态，旧请求静默结束；
+     *   - 没有更新的请求接管时，旧请求必须自己收尾，不允许留下「没有在途请求却永久 loading」。
+     */
     const discard = (): ActionResult<AdvisorOutcome> => {
-      // 项目已经切走时，把它自己的 loading 收尾，避免切回来看到永远转圈的状态
+      const latest = inFlightRequest
+      const isLatestRequest = latest !== null && latest.token === token
+
+      // 期间又发起过新的 refreshRecommendations：状态归新请求管，这里什么都不动
+      if (!isLatestRequest) {
+        return localFailure('STALE_RESPONSE', '该建议响应已过期，已丢弃')
+      }
+
+      // 用户已经切走项目：把该项目自己残留的 loading 收成 idle，避免切回来看到永远转圈
       if (currentProjectId.value !== projectId) {
         const state = advisorByProject.value[projectId]
         if (state?.status === 'loading' && state.requestId === request.requestId) {
           patchAdvisor(projectId, { status: 'idle', requestId: null })
         }
+        return localFailure('STALE_RESPONSE', '该建议响应已过期，已丢弃')
       }
+
+      const latestRevision = computeProjectRevision(project)
+      if (latestRevision !== projectRevision) {
+        // 同一项目但状态已变化（例如认领任务后 projectRevision + 1），且没有更新的请求接管：
+        // 用一次针对当前 revision 的替代请求接管状态，让 loading 最终收敛到实际结果状态
+        void refreshRecommendations({ forceRefresh: options.forceRefresh })
+        return localFailure('STALE_RESPONSE', '该建议响应已过期，已丢弃')
+      }
+
+      // 版本没变（例如服务端回显与本次请求不符）：回到可重试的 idle，不得停在 loading
+      patchAdvisor(projectId, {
+        status: 'idle',
+        requestId: null,
+        suggestions: [],
+        error: null,
+      })
       return localFailure('STALE_RESPONSE', '该建议响应已过期，已丢弃')
     }
 
@@ -1089,9 +1175,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       const result = await fetchRecommendations(request, { signal: controller.signal })
 
       // 过期判断（契约 4.7 第 1~4 条）
-      if (token !== inFlightToken) return discard()
-      if (currentProjectId.value !== projectId) return discard()
-      if (computeProjectRevision(project) !== projectRevision) return discard()
+      if (!isStillCurrent()) return discard()
 
       if (result.ok) {
         const parsed = toRecommendations(result.data)
@@ -1166,9 +1250,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
       return fallbackToLocalRule(result.error)
     } catch (unexpected) {
+      // 契约 4.7 补充约定 2、3：catch / abort 回调同样不能让旧请求覆盖更新的请求状态
+      if (!isStillCurrent()) return discard()
       return fallbackToLocalRule(toUnexpectedError(unexpected))
     } finally {
       if (inFlightAbort === controller) inFlightAbort = null
+      // 只有自己仍是最新请求时才清空身份，避免清掉替代请求的记录
+      if (inFlightRequest !== null && inFlightRequest.token === token) inFlightRequest = null
     }
   }
 
