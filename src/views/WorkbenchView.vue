@@ -5,9 +5,14 @@ import ProjectCreate from '@/components/ProjectCreate.vue'
 import ProjectMindMap from '@/components/ProjectMindMap.vue'
 import SuggestionCard from '@/components/SuggestionCard.vue'
 import { CHINESE_NUM, WEEK_LABELS, useWorkbenchStore } from '@/stores/workbench'
-import { deriveDoubtSnapshots, deriveEvidenceSnapshots } from '@/domain/activity'
+import { deriveDoubtSnapshots, deriveEvidenceSnapshots, toDisplayTime } from '@/domain/activity'
 import { deriveTaskSnapshots } from '@/domain/progress'
-import type { AdvisorFallbackReason, Recommendation } from '@/domain/recommendation'
+import type {
+  ActionResult,
+  AdvisorFallbackReason,
+  ClaimTaskInput,
+  Recommendation,
+} from '@/domain/recommendation'
 import type { Milestone } from '@/types/platform'
 
 /**
@@ -87,6 +92,30 @@ const ERROR_TEXT: Record<string, string> = {
   UNAUTHORIZED: '没有通过服务端校验',
 }
 
+/**
+ * store action 失败码 → 人话（契约 3.3 / 5.2：不把英文错误码直接给用户）。
+ * 页面只看 `ok` 和 `code`，不通过 toast 文案判断是否成功。
+ */
+const ACTION_ERROR_TEXT: Record<string, string> = {
+  INVALID_INPUT: '请补充必填信息或检查输入长度',
+  NOT_FOUND: '该任务或疑问已经不存在',
+  PROJECT_MISMATCH: '当前项目已变化，请重新加载',
+  TASK_NOT_CLAIMABLE: '该任务已经完成',
+  STORAGE_FULL: '本地存储空间不足，当前表单内容已保留',
+  NETWORK_ERROR: '后端暂时不可用',
+  STALE_RESPONSE: '这条建议已经过期，请重新获取',
+  INTERNAL: '服务端内部错误',
+  STALE_REVISION: '项目版本和服务端对不上',
+  UNAUTHORIZED: '没有通过服务端校验',
+}
+
+/** `ALREADY_RESOLVED` 是静默成功语义：不报错、不弹提示 */
+function notifyFailure(result: ActionResult<unknown>): void {
+  if (result.ok) return
+  if (result.code === 'ALREADY_RESOLVED') return
+  store.toast(ACTION_ERROR_TEXT[result.code] ?? '操作没有完成，请稍后再试')
+}
+
 const aiStatus = computed(() => store.aiStatus)
 const isRequesting = computed(() => store.aiStatus === 'loading')
 
@@ -161,17 +190,24 @@ const requestLabel = computed(() => {
   return '重新获取'
 })
 
+/** 契约 6.1：只有 RATE_LIMITED 会给具体秒数，这里只做一句静态提示，不做倒计时 */
+const retryAfterText = computed(() => {
+  const seconds = store.aiError?.retryAfterSeconds
+  return typeof seconds === 'number' && seconds > 0 ? `建议等待 ${seconds} 秒后再试` : ''
+})
+
 /** 契约 5.3：loading 期间禁止重复点击触发并发请求 */
-function requestSuggestions() {
+async function requestSuggestions() {
   if (isRequesting.value) return
 
-  void store
-    .refreshRecommendations({ forceRefresh: store.aiStatus !== 'idle' })
-    .catch((error: unknown) => {
-      // store 内部已处理大多数失败，这里只兜住"请求还没发出去就出错"的异常
-      console.warn('[建议] 请求未能完成', error instanceof Error ? error.name : 'unknown')
-      store.toast('建议请求没能完成，请稍后再试')
-    })
+  try {
+    const result = await store.refreshRecommendations({ forceRefresh: store.aiStatus !== 'idle' })
+    if (!result.ok) notifyFailure(result)
+  } catch (error: unknown) {
+    // store 内部已处理绝大多数失败，这里只兜住"请求还没发出去就出错"的异常
+    console.warn('[建议] 请求未能完成', error instanceof Error ? error.name : 'unknown')
+    store.toast('建议请求没能完成，请稍后再试')
+  }
 }
 
 /**
@@ -189,32 +225,39 @@ const derived = computed(() => {
   const doubts = deriveDoubtSnapshots(p, reference)
 
   return {
-    taskIndexById: new Map(tasks.map((task, index) => [task.taskId, index])),
+    /** 任务快照：认领与「确认完成」都用它提供的真实 taskId */
+    tasks,
+    /** 未解决疑问：列表与依据反查共用同一份（只含 open） */
+    doubts,
+    /** evidenceId → 可读内容。展示时间由 domain 格式化，页面不自己拼时间 */
     evidenceById: new Map(
-      evidence.map((item, index) => [
+      evidence.map((item) => [
         item.evidenceId,
-        { id: item.evidenceId, time: p.evidence[index]?.time ?? '', text: item.didWhat },
+        { id: item.evidenceId, time: toDisplayTime(item.createdAt), text: item.didWhat },
       ]),
     ),
     doubtById: new Map(doubts.map((item) => [item.doubtId, { id: item.doubtId, text: item.text }])),
   }
 })
 
+/** 左栏「未解决的疑问」：用结构化疑问的真实 ID（只含 open） */
+const openDoubts = computed(() => derived.value?.doubts ?? [])
+
+/** 切换项目用稳定 projectId，不用数组下标 */
+function onSelectProject(projectId: string) {
+  const result = store.selectProject(projectId)
+  if (!result.ok) notifyFailure(result)
+}
+
 /** 契约 5.4 第 4 条：同一条建议重复点击只认领一次 */
 const claimedIds = ref<string[]>([])
 
-watch(
-  () => store.curIdx,
-  () => {
-    claimedIds.value = []
-  },
-)
-
-type ClaimState = 'claimable' | 'claimed' | 'draft-unavailable'
+type ClaimState = 'claimable' | 'claimed' | 'draft'
 
 function claimStateOf(suggestion: Recommendation): ClaimState {
   if (claimedIds.value.includes(suggestion.id)) return 'claimed'
-  if (suggestion.existingTaskId === null) return 'draft-unavailable'
+  // existingTaskId 为 null = 新任务候选（契约 5.4 第 2 条），走 claimTask({ draft })
+  if (suggestion.existingTaskId === null) return 'draft'
   return 'claimable'
 }
 
@@ -241,20 +284,51 @@ const suggestionViews = computed(() =>
   }),
 )
 
-/** 认领已有任务（新任务候选择由卡片自己禁用按钮，这里不会再被调到） */
+/**
+ * 契约 5.4：建议 → 任务。
+ * - existingTaskId 非空 → claimTask({ taskId })
+ * - existingTaskId 为 null → 新任务候选，claimTask({ draft })，由 store 生成稳定 taskId 并直接置为 doing
+ * 页面不判断任务状态、不自己造任务、不碰进度。
+ */
 function claimSuggestion(suggestion: Recommendation) {
-  const taskId = suggestion.existingTaskId
-  if (taskId === null) return
   if (claimedIds.value.includes(suggestion.id)) return
 
-  const index = derived.value?.taskIndexById.get(taskId)
-  if (index === undefined) {
-    store.toast('这条建议对应的任务已经不在当前项目里，请重新获取建议')
+  const input: ClaimTaskInput =
+    suggestion.existingTaskId === null
+      ? {
+          draft: {
+            title: suggestion.title,
+            doneCriteria: suggestion.doneCriteria,
+            requestId: suggestion.requestId,
+            basisEvidenceIds: [...suggestion.basisEvidenceIds],
+            basisDoubtIds: [...suggestion.basisDoubtIds],
+          },
+        }
+      : { taskId: suggestion.existingTaskId }
+
+  const result = store.claimTask(input)
+  if (!result.ok) {
+    notifyFailure(result)
     return
   }
-
-  store.claimStep(index)
   claimedIds.value = [...claimedIds.value, suggestion.id]
+}
+
+/** 中栏「AI 项目顾问」的步骤卡：同样走 claimTask，不用下标版 wrapper */
+function claimStepByIndex(index: number) {
+  const task = derived.value?.tasks[index]
+  if (task === undefined) {
+    store.toast('该任务已经不存在，请重新获取建议')
+    return
+  }
+  const result = store.claimTask({ taskId: task.taskId })
+  if (!result.ok) notifyFailure(result)
+}
+
+/** 契约 3.2：resolveDoubt 用真实 doubtId。重复解决（ALREADY_RESOLVED）保持安静 */
+function resolveDoubtById(doubtId: string) {
+  const result = store.resolveDoubt(doubtId)
+  if (!result.ok) notifyFailure(result)
 }
 
 /* -------------------------------------------------------------- 材料 */
@@ -299,25 +373,71 @@ watch(() => project.value?.chat.length, scrollChat)
 
 /* -------------------------------------------------------- 提交证据 */
 
+/**
+ * 契约 3.2 / 2.3：证据表单直接用结构化字段。
+ * `taskId` 为空串表示「不关联任务」（对应快照里的 null）。
+ */
 const form = reactive({
-  stepLabel: '',
+  taskId: '',
   didWhat: '',
   foundWhat: '',
-  solved: '',
-  unsure: '',
-  attachment: null as string | null,
+  stillUnsure: '',
+  attachmentName: null as string | null,
 })
 
 const evidenceInput = ref<HTMLInputElement | null>(null)
+const submitting = ref(false)
+/** 最近一次证据保存成功的展示时间（契约 5.2：证据已保存要可见） */
+const lastSavedAt = ref('')
 
-const stepOptions = computed(() =>
-  (project.value?.steps ?? []).map((s, i) => `步骤 ${i + 1} · ${s.t}`).concat(['其他进展']),
+/**
+ * 幂等键：一次真正的提交只生成一次。
+ * 提交失败时保留它，重复点击会复用同一个 submissionId（store 侧命中即不重复写入）；
+ * 保存成功后作废，下一次提交重新生成。
+ */
+let pendingSubmissionId: string | null = null
+
+function newSubmissionId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/** 任务下拉：结构化任务列表（真实 taskId），状态只用来做展示后缀 */
+const taskOptions = computed(() => {
+  const tasks = derived.value?.tasks ?? []
+  return [
+    ...tasks.map((task) => ({
+      value: task.taskId,
+      label: task.title + (task.status === 'done' ? '（已完成）' : task.status === 'doing' ? '（进行中）' : ''),
+    })),
+    { value: '', label: '其他进展（不关联任务）' },
+  ]
+})
+
+const selectedTask = computed(
+  () => (derived.value?.tasks ?? []).find((task) => task.taskId === form.taskId) ?? null,
 )
 
+/**
+ * 「确认完成」是否可用。
+ * 这里只做按钮可用性提示；真正的状态规则（只允许 doing → done）在 store 里。
+ */
+const canComplete = computed(() => selectedTask.value !== null && selectedTask.value.status === 'doing')
+
 watch(
-  () => project.value,
-  (p) => {
-    if (p && !form.stepLabel) form.stepLabel = `步骤 1 · ${p.steps[0]?.t ?? ''}`
+  () => project.value?.projectId,
+  () => {
+    // 切换项目：清掉上一次的认领记录、表单与幂等键
+    claimedIds.value = []
+    pendingSubmissionId = null
+    lastSavedAt.value = ''
+    form.taskId = taskOptions.value[0]?.value ?? ''
+    form.didWhat = ''
+    form.foundWhat = ''
+    form.stillUnsure = ''
+    form.attachmentName = null
   },
   { immediate: true },
 )
@@ -326,19 +446,68 @@ function pickEvidenceFile(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  form.attachment = file.name
+  // MVP 只记文件名，不上传文件本身
+  form.attachmentName = file.name
 }
 
-function submitEvidence() {
-  store.submitEvidence({ ...form })
-  if (!store.toastText.startsWith('请先')) {
+/**
+ * 契约 3.2：submitEvidence。
+ * - complete: false → 只保存证据，必要时生成未解决疑问，不把任务改成 done；
+ * - complete: true  → 校验通过后由 store 把进行中的任务置为 done。
+ * 失败一律保留表单内容。
+ */
+async function submitEvidence(complete: boolean) {
+  if (submitting.value) return
+  submitting.value = true
+
+  try {
+    if (pendingSubmissionId === null) pendingSubmissionId = newSubmissionId()
+
+    const result = await store.submitEvidence({
+      submissionId: pendingSubmissionId,
+      taskId: form.taskId === '' ? null : form.taskId,
+      didWhat: form.didWhat,
+      foundWhat: form.foundWhat,
+      stillUnsure: form.stillUnsure,
+      attachmentName: form.attachmentName,
+      complete,
+    })
+
+    if (!result.ok) {
+      // 保留已填写内容（STORAGE_FULL / INVALID_INPUT 尤其重要）
+      notifyFailure(result)
+      return
+    }
+
+    // 保存成功：作废幂等键、清空输入（任务选择保留，方便连着记录下一条）
+    pendingSubmissionId = null
+    lastSavedAt.value = toDisplayTime(new Date().toISOString())
     form.didWhat = ''
     form.foundWhat = ''
-    form.solved = ''
-    form.unsure = ''
-    form.attachment = null
+    form.stillUnsure = ''
+    form.attachmentName = null
+  } finally {
+    submitting.value = false
   }
 }
+
+/** 契约 5.2：证据保存结果与建议结果要同时可见 */
+const adviceNote = computed(() => {
+  switch (store.aiStatus) {
+    case 'loading':
+      return '正在重新判断下一步…'
+    case 'model':
+      return '下一步建议来自 AI 模型'
+    case 'fallback':
+      return `建议来自服务端规则（${reasonText.value}）`
+    case 'local-rule':
+      return `建议来自本地规则（${reasonText.value}）`
+    case 'error':
+      return `建议没有生成出来：${reasonText.value}`
+    default:
+      return ''
+  }
+})
 </script>
 
 <template>
@@ -370,10 +539,12 @@ function submitEvidence() {
           <div class="card-b">
             <select
               class="proj-select"
-              :value="store.curIdx"
-              @change="store.selectProject(Number(($event.target as HTMLSelectElement).value))"
+              :value="project.projectId"
+              @change="onSelectProject(($event.target as HTMLSelectElement).value)"
             >
-              <option v-for="(item, i) in store.projects" :key="i" :value="i">{{ item.name }}</option>
+              <option v-for="item in store.projects" :key="item.projectId" :value="item.projectId">
+                {{ item.name }}
+              </option>
             </select>
             <div style="font-size:12px;color:#888780;line-height:1.7;margin-bottom:8px;">
               {{ project.group }} · {{ project.members }}<br />{{ project.updated }}
@@ -444,20 +615,20 @@ function submitEvidence() {
             <span
               class="tag"
               style="background:#FAEEDA;color:#854F0B;border:1px solid #FAC775;"
-            >{{ project.doubts.length }}</span>
+            >{{ openDoubts.length }}</span>
           </div>
           <div class="card-b" style="padding-top:6px;">
-            <div v-for="(d, i) in project.doubts" :key="i" class="doubt">
-              {{ d }}
+            <div v-for="d in openDoubts" :key="d.doubtId" class="doubt">
+              {{ d.text }}
               <button
                 class="btn"
                 style="margin-top:6px;padding:3px 10px;font-size:11.5px;"
-                @click="store.resolveDoubt(i)"
+                @click="resolveDoubtById(d.doubtId)"
               >
                 标记已解决
               </button>
             </div>
-            <div v-if="!project.doubts.length" class="empty">
+            <div v-if="!openDoubts.length" class="empty">
               暂无疑问。推进中产生的不确定会记录在这里。
             </div>
           </div>
@@ -481,6 +652,7 @@ function submitEvidence() {
               <button class="btn primary" :disabled="isRequesting" @click="requestSuggestions">
                 {{ requestLabel }}
               </button>
+              <span v-if="retryAfterText" class="hint">{{ retryAfterText }}</span>
             </div>
 
             <SuggestionCard
@@ -526,7 +698,7 @@ function submitEvidence() {
               <div class="sc-why"><b>为什么现在做：</b>{{ s.why }}</div>
               <div class="sc-done">{{ s.done }}</div>
               <div class="sc-actions">
-                <button class="btn primary" @click="store.claimStep(i)">认领这一步</button>
+                <button class="btn primary" @click="claimStepByIndex(i)">认领这一步</button>
                 <button class="btn" @click="store.askAboutStep(i)">就此提问</button>
                 <button class="btn" @click="router.push('/papers')">相关论文</button>
               </div>
@@ -584,9 +756,9 @@ function submitEvidence() {
         <div class="card" style="margin-bottom:14px;">
           <div class="card-h">提交步骤证据</div>
           <div class="card-b evi-form">
-            <label>对应步骤</label>
-            <select v-model="form.stepLabel" class="proj-select" style="margin-bottom:0;">
-              <option v-for="opt in stepOptions" :key="opt" :value="opt">{{ opt }}</option>
+            <label>对应任务</label>
+            <select v-model="form.taskId" class="proj-select" style="margin-bottom:0;">
+              <option v-for="opt in taskOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
 
             <label>完成了什么</label>
@@ -595,19 +767,48 @@ function submitEvidence() {
             <label>发现了什么 <small>（意外收获、异常现象都算）</small></label>
             <textarea v-model="form.foundWhat"></textarea>
 
-            <label>解决了哪个问题</label>
-            <textarea v-model="form.solved"></textarea>
-
             <label>还有什么不确定</label>
-            <textarea v-model="form.unsure" placeholder="写下来的会进入左侧「未解决的疑问」"></textarea>
+            <textarea
+              v-model="form.stillUnsure"
+              placeholder="写下来的会进入左侧「未解决的疑问」"
+            ></textarea>
 
-            <div class="upbox" style="margin-top:12px;" :class="{ has: form.attachment }" @click="evidenceInput?.click()">
-              <template v-if="form.attachment">✓ 附件：{{ form.attachment }}</template>
+            <div
+              class="upbox"
+              style="margin-top:12px;"
+              :class="{ has: form.attachmentName }"
+              @click="evidenceInput?.click()"
+            >
+              <template v-if="form.attachmentName">✓ 附件：{{ form.attachmentName }}</template>
               <template v-else>＋ 附加 notebook、截图或结果文件</template>
             </div>
             <input ref="evidenceInput" type="file" style="display:none" @change="pickEvidenceFile" />
 
-            <button class="submit" @click="submitEvidence">提交并更新项目状态</button>
+            <!-- 契约 4.1：记录进展与确认完成是两个不同动作 -->
+            <button class="submit" :disabled="submitting" @click="submitEvidence(false)">
+              记录进展（不完成任务）
+            </button>
+            <button
+              class="submit"
+              style="margin-top:8px;background:#0F6E56;"
+              :disabled="submitting || !canComplete"
+              @click="submitEvidence(true)"
+            >
+              确认完成这一步
+            </button>
+            <div v-if="!canComplete" class="evi-hint">
+              确认完成需要先认领一个进行中的任务。只想留下记录就用上面的「记录进展」。
+            </div>
+
+            <!-- 契约 5.2：证据保存结果与建议结果同时可见 -->
+            <div v-if="lastSavedAt" class="evi-saved">
+              ✓ 证据已于 {{ lastSavedAt }} 保存（建议失败也不会丢失）
+              <template v-if="adviceNote"><br />{{ adviceNote }}</template>
+              <template v-if="store.aiStatus === 'error' || store.aiStatus === 'local-rule'">
+                <br />可以在「AI 下一步建议」处重试。
+              </template>
+              <template v-if="retryAfterText"><br />{{ retryAfterText }}</template>
+            </div>
           </div>
         </div>
 
@@ -630,3 +831,35 @@ function submitEvidence() {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 只补两个新增区块的样式，其余沿用全局 platform.css 与设计稿配色 */
+.evi-hint {
+  margin-top: 8px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: #888780;
+}
+
+.evi-saved {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #e1f5ee;
+  border: 1px solid #9fe1cb;
+  color: #0f6e56;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.hint {
+  font-size: 11.5px;
+  color: #888780;
+  align-self: center;
+}
+</style>
