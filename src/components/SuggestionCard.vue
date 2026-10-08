@@ -10,17 +10,16 @@ import type { Recommendation, RecommendationSource } from '@/domain/recommendati
  * 展开后显示的是可读内容，不是 ID。
  *
  * 任务按钮的三种状态（契约 5.4）：
- *   claimable          existingTaskId 非空 → 「认领这一步」
- *   claimed            这条建议已经认领过 → 「已认领」（用 id 去重，重复点击不再产生任务）
- *   draft-unavailable  existingTaskId 为 null（新任务候选）→ 「就按这个做」
- *                      但创建任务的能力还没接入，所以按钮禁用并写明原因
+ *   claimable          认领已有任务，或通过 draft 创建并认领新任务
+ *   claimed            这条建议已经认领过 → 「已认领」
+ *   draft              existingTaskId 为空 → 「就按这个做」
  */
 
 const props = defineProps<{
   suggestion: Recommendation
   /** 列表里的序号，从 0 开始 */
   index: number
-  claimState: 'claimable' | 'claimed' | 'draft-unavailable'
+  claimState: 'claimable' | 'claimed' | 'draft'
   /** 依据证据的可读内容（已由页面把 ID 解析成文字） */
   evidence: Array<{ id: string; time: string; text: string }>
   /** 依据疑问的可读内容 */
@@ -48,7 +47,7 @@ const sourceStyle = computed(() => SOURCE_STYLE[props.suggestion.source])
 const CLAIM_LABEL = {
   claimable: '认领这一步',
   claimed: '已认领',
-  'draft-unavailable': '就按这个做',
+  draft: '就按这个做',
 } as const
 
 const claimLabel = computed(() => CLAIM_LABEL[props.claimState])
@@ -94,15 +93,15 @@ const basisCount = computed(() => props.evidence.length + props.doubts.length)
     </details>
 
     <div class="sc-actions">
-      <button class="btn primary" :disabled="claimState !== 'claimable'" @click="emit('claim')">
+      <button class="btn primary" :disabled="claimState === 'claimed'" @click="emit('claim')">
         {{ claimLabel }}
       </button>
 
       <span v-if="claimState === 'claimed'" class="hint">
         已认领。做完这一步记得提交证据，建议会随项目状态更新。
       </span>
-      <span v-else-if="claimState === 'draft-unavailable'" class="hint">
-        这是一条新任务候选：把它变成正式任务的功能还没开放，先按这条建议推进，或先认领已有任务。
+      <span v-else-if="claimState === 'draft'" class="hint">
+        点击后会把这条建议创建为当前项目的进行中任务。
       </span>
     </div>
   </div>

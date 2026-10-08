@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import AiStatus from '@/components/AiStatus.vue'
+import EvidenceForm from '@/components/EvidenceForm.vue'
 import ProjectCreate from '@/components/ProjectCreate.vue'
 import ProjectMindMap from '@/components/ProjectMindMap.vue'
-import SuggestionCard from '@/components/SuggestionCard.vue'
+import RecommendationList from '@/components/RecommendationList.vue'
 import { CHINESE_NUM, WEEK_LABELS, useWorkbenchStore } from '@/stores/workbench'
 import { deriveDoubtSnapshots, deriveEvidenceSnapshots } from '@/domain/activity'
-import { deriveTaskSnapshots } from '@/domain/progress'
-import type { AdvisorFallbackReason, Recommendation } from '@/domain/recommendation'
+import type { AdvisorFallbackReason, Recommendation, SubmitEvidenceInput } from '@/domain/recommendation'
 import type { Milestone } from '@/types/platform'
 
 /**
@@ -122,17 +123,9 @@ const statusLine = computed(() => {
   }
 })
 
-const statusStyle = computed(() => {
-  switch (store.aiStatus) {
-    case 'fallback':
-      return 'background:#FAEEDA;border-color:#FAC775;color:#854F0B;'
-    case 'local-rule':
-      return 'background:#f1efe8;border-color:#d3d1c7;color:#5f5e5a;'
-    case 'error':
-      return 'background:#FCEBEB;border-color:#F7C1C1;color:#A32D2D;'
-    default:
-      return ''
-  }
+const statusTone = computed(() => {
+  if (store.aiStatus === 'idle') return 'neutral'
+  return store.aiStatus
 })
 
 const statusTag = computed(() => {
@@ -184,12 +177,10 @@ const derived = computed(() => {
   if (!p) return null
 
   const reference = new Date()
-  const tasks = deriveTaskSnapshots(p, reference)
   const evidence = deriveEvidenceSnapshots(p, reference)
   const doubts = deriveDoubtSnapshots(p, reference)
 
   return {
-    taskIndexById: new Map(tasks.map((task, index) => [task.taskId, index])),
     evidenceById: new Map(
       evidence.map((item, index) => [
         item.evidenceId,
@@ -204,17 +195,17 @@ const derived = computed(() => {
 const claimedIds = ref<string[]>([])
 
 watch(
-  () => store.curIdx,
+  () => project.value?.projectId,
   () => {
     claimedIds.value = []
   },
 )
 
-type ClaimState = 'claimable' | 'claimed' | 'draft-unavailable'
+type ClaimState = 'claimable' | 'claimed' | 'draft'
 
 function claimStateOf(suggestion: Recommendation): ClaimState {
   if (claimedIds.value.includes(suggestion.id)) return 'claimed'
-  if (suggestion.existingTaskId === null) return 'draft-unavailable'
+  if (suggestion.existingTaskId === null) return 'draft'
   return 'claimable'
 }
 
@@ -241,20 +232,39 @@ const suggestionViews = computed(() =>
   }),
 )
 
-/** 认领已有任务（新任务候选择由卡片自己禁用按钮，这里不会再被调到） */
+/** 认领已有任务，或把新任务候选保存为进行中的正式任务。 */
 function claimSuggestion(suggestion: Recommendation) {
-  const taskId = suggestion.existingTaskId
-  if (taskId === null) return
   if (claimedIds.value.includes(suggestion.id)) return
 
-  const index = derived.value?.taskIndexById.get(taskId)
-  if (index === undefined) {
-    store.toast('这条建议对应的任务已经不在当前项目里，请重新获取建议')
+  const result =
+    suggestion.existingTaskId === null
+      ? store.claimTask({
+          draft: {
+            title: suggestion.title,
+            doneCriteria: suggestion.doneCriteria,
+            requestId: suggestion.requestId,
+            basisEvidenceIds: suggestion.basisEvidenceIds,
+            basisDoubtIds: suggestion.basisDoubtIds,
+          },
+        })
+      : store.claimTask({ taskId: suggestion.existingTaskId })
+  if (!result.ok) {
+    store.toast(result.message)
     return
   }
 
-  store.claimStep(index)
   claimedIds.value = [...claimedIds.value, suggestion.id]
+}
+
+function claimLegacyStep(stepIndex: number) {
+  const task = project.value?.tasks[stepIndex]
+  if (task === undefined) {
+    store.toast('这条任务已经不在当前项目里，请重新获取建议')
+    return
+  }
+
+  const result = store.claimTask({ taskId: task.id })
+  if (!result.ok) store.toast(result.message)
 }
 
 /* -------------------------------------------------------------- 材料 */
@@ -299,46 +309,55 @@ watch(() => project.value?.chat.length, scrollChat)
 
 /* -------------------------------------------------------- 提交证据 */
 
-const form = reactive({
-  stepLabel: '',
-  didWhat: '',
-  foundWhat: '',
-  solved: '',
-  unsure: '',
-  attachment: null as string | null,
-})
-
-const evidenceInput = ref<HTMLInputElement | null>(null)
-
-const stepOptions = computed(() =>
-  (project.value?.steps ?? []).map((s, i) => `步骤 ${i + 1} · ${s.t}`).concat(['其他进展']),
-)
+const evidenceForm = ref<InstanceType<typeof EvidenceForm> | null>(null)
+const evidenceSubmitting = ref(false)
+const savedEvidenceAt = ref('')
+const savedEvidenceHint = ref('')
 
 watch(
-  () => project.value,
-  (p) => {
-    if (p && !form.stepLabel) form.stepLabel = `步骤 1 · ${p.steps[0]?.t ?? ''}`
+  () => project.value?.projectId,
+  () => {
+    savedEvidenceAt.value = ''
+    savedEvidenceHint.value = ''
   },
-  { immediate: true },
 )
 
-function pickEvidenceFile(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  form.attachment = file.name
-}
-
-function submitEvidence() {
-  store.submitEvidence({ ...form })
-  if (!store.toastText.startsWith('请先')) {
-    form.didWhat = ''
-    form.foundWhat = ''
-    form.solved = ''
-    form.unsure = ''
-    form.attachment = null
+async function submitEvidence(input: SubmitEvidenceInput) {
+  if (evidenceSubmitting.value) return
+  evidenceSubmitting.value = true
+  try {
+    const result = await store.submitEvidence(input)
+    if (result.ok) {
+      evidenceForm.value?.reset()
+      savedEvidenceAt.value = new Date().toLocaleTimeString('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
+      const usedRuleRecommendation = store.aiStatus === 'fallback' || store.aiStatus === 'local-rule'
+      savedEvidenceHint.value = usedRuleRecommendation
+        ? '建议暂时使用规则结果'
+        : store.aiStatus === 'error'
+          ? '建议生成失败，请查看建议区并重试'
+          : '建议由 AI 模型生成'
+      if (store.aiStatus !== 'model') {
+        store.toast(`证据已保存，${savedEvidenceHint.value}`)
+      }
+    } else {
+      // 失败时不重置组件，保留用户已经填写的内容以便修正后重试。
+      store.toast(result.message)
+    }
+  } catch (error: unknown) {
+    console.warn('[证据] 提交未能完成', error instanceof Error ? error.name : 'unknown')
+    store.toast('证据没有保存，请稍后重试')
+  } finally {
+    evidenceSubmitting.value = false
   }
 }
+
+const openDoubts = computed(() =>
+  (project.value?.doubtRecords ?? []).filter((doubt) => doubt.status === 'open'),
+)
 </script>
 
 <template>
@@ -370,10 +389,10 @@ function submitEvidence() {
           <div class="card-b">
             <select
               class="proj-select"
-              :value="store.curIdx"
-              @change="store.selectProject(Number(($event.target as HTMLSelectElement).value))"
+              :value="project.projectId"
+              @change="store.selectProject(($event.target as HTMLSelectElement).value)"
             >
-              <option v-for="(item, i) in store.projects" :key="i" :value="i">{{ item.name }}</option>
+              <option v-for="item in store.projects" :key="item.projectId" :value="item.projectId">{{ item.name }}</option>
             </select>
             <div style="font-size:12px;color:#888780;line-height:1.7;margin-bottom:8px;">
               {{ project.group }} · {{ project.members }}<br />{{ project.updated }}
@@ -444,20 +463,20 @@ function submitEvidence() {
             <span
               class="tag"
               style="background:#FAEEDA;color:#854F0B;border:1px solid #FAC775;"
-            >{{ project.doubts.length }}</span>
+            >{{ openDoubts.length }}</span>
           </div>
           <div class="card-b" style="padding-top:6px;">
-            <div v-for="(d, i) in project.doubts" :key="i" class="doubt">
-              {{ d }}
+            <div v-for="doubt in openDoubts" :key="doubt.id" class="doubt">
+              {{ doubt.text }}
               <button
                 class="btn"
                 style="margin-top:6px;padding:3px 10px;font-size:11.5px;"
-                @click="store.resolveDoubt(i)"
+                @click="store.resolveDoubt(doubt.id)"
               >
                 标记已解决
               </button>
             </div>
-            <div v-if="!project.doubts.length" class="empty">
+            <div v-if="!openDoubts.length" class="empty">
               暂无疑问。推进中产生的不确定会记录在这里。
             </div>
           </div>
@@ -470,29 +489,18 @@ function submitEvidence() {
         <div class="card" style="margin-bottom:14px;">
           <div class="card-h">
             AI 下一步建议
-            <span class="tag" style="background:#E6F1FB;color:#185FA5;border:1px solid #B5D4F4;">
-              {{ statusTag }}
-            </span>
           </div>
           <div class="card-b">
-            <div class="ai-banner" :style="statusStyle">{{ statusLine }}</div>
-
-            <div class="sc-actions" style="margin-top:0;margin-bottom:4px;">
-              <button class="btn primary" :disabled="isRequesting" @click="requestSuggestions">
-                {{ requestLabel }}
-              </button>
-            </div>
-
-            <SuggestionCard
-              v-for="view in suggestionViews"
-              :key="view.suggestion.id"
-              :suggestion="view.suggestion"
-              :index="view.index"
-              :claim-state="view.claimState"
-              :evidence="view.evidence"
-              :doubts="view.doubts"
-              @claim="claimSuggestion(view.suggestion)"
+            <AiStatus
+              :tone="statusTone"
+              :tag="statusTag"
+              :message="statusLine"
+              :action-label="requestLabel"
+              :busy="isRequesting"
+              @retry="requestSuggestions"
             />
+
+            <RecommendationList :items="suggestionViews" @claim="claimSuggestion" />
 
             <div
               v-if="!suggestionViews.length && !isRequesting && aiStatus !== 'error'"
@@ -514,20 +522,20 @@ function submitEvidence() {
           <div class="card-b">
             <div class="ai-banner">{{ project.banner }}</div>
 
-            <div v-for="(s, i) in project.steps" :key="i" class="step-card">
+            <div v-for="(step, index) in project.steps" :key="step.t" class="step-card">
               <div class="sc-top">
-                <div class="sc-no">{{ i + 1 }}</div>
-                <div class="sc-title">{{ s.t }}</div>
+                <div class="sc-no">{{ index + 1 }}</div>
+                <div class="sc-title">{{ step.t }}</div>
                 <span
                   class="tag sc-owner"
                   style="background:#E6F1FB;color:#185FA5;border:1px solid #B5D4F4;"
-                >建议：{{ s.owner }}</span>
+                >建议：{{ step.owner }}</span>
               </div>
-              <div class="sc-why"><b>为什么现在做：</b>{{ s.why }}</div>
-              <div class="sc-done">{{ s.done }}</div>
+              <div class="sc-why"><b>为什么现在做：</b>{{ step.why }}</div>
+              <div class="sc-done">{{ step.done }}</div>
               <div class="sc-actions">
-                <button class="btn primary" @click="store.claimStep(i)">认领这一步</button>
-                <button class="btn" @click="store.askAboutStep(i)">就此提问</button>
+                <button class="btn primary" @click="claimLegacyStep(index)">认领这一步</button>
+                <button class="btn" @click="store.askAboutStep(index)">就此提问</button>
                 <button class="btn" @click="router.push('/papers')">相关论文</button>
               </div>
             </div>
@@ -583,31 +591,18 @@ function submitEvidence() {
       <div>
         <div class="card" style="margin-bottom:14px;">
           <div class="card-h">提交步骤证据</div>
-          <div class="card-b evi-form">
-            <label>对应步骤</label>
-            <select v-model="form.stepLabel" class="proj-select" style="margin-bottom:0;">
-              <option v-for="opt in stepOptions" :key="opt" :value="opt">{{ opt }}</option>
-            </select>
-
-            <label>完成了什么</label>
-            <textarea v-model="form.didWhat" placeholder="一句话说明产出"></textarea>
-
-            <label>发现了什么 <small>（意外收获、异常现象都算）</small></label>
-            <textarea v-model="form.foundWhat"></textarea>
-
-            <label>解决了哪个问题</label>
-            <textarea v-model="form.solved"></textarea>
-
-            <label>还有什么不确定</label>
-            <textarea v-model="form.unsure" placeholder="写下来的会进入左侧「未解决的疑问」"></textarea>
-
-            <div class="upbox" style="margin-top:12px;" :class="{ has: form.attachment }" @click="evidenceInput?.click()">
-              <template v-if="form.attachment">✓ 附件：{{ form.attachment }}</template>
-              <template v-else>＋ 附加 notebook、截图或结果文件</template>
+          <div class="card-b">
+            <div v-if="savedEvidenceAt" class="evidence-save-status" role="status" aria-live="polite">
+              <strong>证据已保存（{{ savedEvidenceAt }}）</strong>
+              <span> · {{ savedEvidenceHint }}</span>
             </div>
-            <input ref="evidenceInput" type="file" style="display:none" @change="pickEvidenceFile" />
-
-            <button class="submit" @click="submitEvidence">提交并更新项目状态</button>
+            <EvidenceForm
+              ref="evidenceForm"
+              :tasks="project.tasks"
+              :project-key="project.projectId"
+              :submitting="evidenceSubmitting"
+              @submit="submitEvidence"
+            />
           </div>
         </div>
 
@@ -630,3 +625,16 @@ function submitEvidence() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.evidence-save-status {
+  border: 1px solid #9FE1CB;
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  background: #E1F5EE;
+  color: #0F6E56;
+  font-size: 12px;
+  line-height: 1.5;
+}
+</style>
