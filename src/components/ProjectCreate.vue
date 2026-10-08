@@ -61,6 +61,13 @@ function submit() {
           <input v-model="customName" type="text" placeholder="输入你的项目名称" />
         </div>
 
+        <div
+          style="font-size:12px;color:#5f5e5a;background:#f8f7f4;border-radius:8px;padding:8px 12px;line-height:1.6;"
+        >
+          选择项目名称只会设置项目名称，不会自动带入任务或项目数据。项目创建后是空白的，
+          上传材料、填写项目目标或提交第一条进展后，AI 才会给出任务和下一步建议。
+        </div>
+
         <label>小组人数</label>
         <select v-model="members">
           <option>3 人</option>

@@ -27,6 +27,21 @@ function createProject(store: WorkbenchStore, name = '测试项目'): string {
   return result.data.projectId
 }
 
+function createProjectWithTask(store: WorkbenchStore, name: string): { projectId: string; taskId: string } {
+  const projectId = createProject(store, name)
+  const result = store.claimTask({
+    draft: {
+      title: `${name}的测试任务`,
+      doneCriteria: '完成测试并提交证据',
+      requestId: null,
+      basisEvidenceIds: [],
+      basisDoubtIds: [],
+    },
+  })
+  if (!result.ok) throw new Error(`创建测试任务失败：${result.message}`)
+  return { projectId, taskId: result.data.taskId }
+}
+
 function makeRecommendation(index: number, source: Recommendation['source'] = 'local-rule'): Recommendation {
   return {
     id: `rec_test_${index}`,
@@ -266,6 +281,16 @@ describe('WorkbenchView', () => {
   it('shows local-rule recommendations after the advisor request fails', async () => {
     const store = freshStore()
     createProject(store)
+    const seeded = store.claimTask({
+      draft: {
+        title: '用于兜底测试的任务',
+        doneCriteria: '完成测试',
+        requestId: null,
+        basisEvidenceIds: [],
+        basisDoubtIds: [],
+      },
+    })
+    expect(seeded.ok).toBe(true)
     const wrapper = mount(WorkbenchView)
 
     await wrapper.get('button.ai-status-action').trigger('click')
@@ -278,6 +303,16 @@ describe('WorkbenchView', () => {
   it('claims a new-task recommendation through the draft action', async () => {
     const store = freshStore()
     const projectId = createProject(store)
+    const seeded = store.claimTask({
+      draft: {
+        title: '已有用户输入的任务',
+        doneCriteria: '完成测试',
+        requestId: null,
+        basisEvidenceIds: [],
+        basisDoubtIds: [],
+      },
+    })
+    expect(seeded.ok).toBe(true)
     const project = store.current
     if (project === undefined) throw new Error('缺少测试项目')
     const initialTaskCount = project.tasks.length
@@ -301,14 +336,12 @@ describe('WorkbenchView', () => {
 
   it('clears claimed recommendation ids when switching projects', async () => {
     const store = freshStore()
-    const firstProjectId = createProject(store, '项目一')
-    const secondProjectId = createProject(store, '项目二')
-    const firstProject = store.projects.find((item) => item.projectId === firstProjectId)
-    const secondProject = store.projects.find((item) => item.projectId === secondProjectId)
-    if (firstProject === undefined || secondProject === undefined) throw new Error('缺少测试项目')
-    const firstTaskId = firstProject.tasks[0]?.id
-    const secondTaskId = secondProject.tasks[0]?.id
-    if (firstTaskId === undefined || secondTaskId === undefined) throw new Error('缺少测试任务')
+    const first = createProjectWithTask(store, '项目一')
+    const second = createProjectWithTask(store, '项目二')
+    const firstProjectId = first.projectId
+    const secondProjectId = second.projectId
+    const firstTaskId = first.taskId
+    const secondTaskId = second.taskId
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -342,6 +375,21 @@ describe('WorkbenchView', () => {
 
     const firstClaimButton = wrapper.get('.recommendation-list .sc-actions button')
     expect(firstClaimButton.attributes('disabled')).toBeUndefined()
+  })
+
+  it('does not request suggestions for a completely blank project', async () => {
+    const store = freshStore()
+    createProject(store)
+    const wrapper = mount(WorkbenchView)
+
+    const action = wrapper.get('button.ai-status-action')
+    expect(action.attributes('disabled')).toBeDefined()
+    expect(action.text()).toContain('等待项目内容')
+    await action.trigger('click')
+    await flushPromises()
+
+    expect(store.aiStatus).toBe('idle')
+    expect(wrapper.findAll('.recommendation-list .step-card')).toHaveLength(0)
   })
 
   it('shows a persistent saved-evidence hint when the advisor falls back', async () => {
@@ -378,12 +426,11 @@ describe('WorkbenchView', () => {
   it('clears the selected task and evidence fields when switching projects', async () => {
     const store = freshStore()
     const firstProjectId = createProject(store, '项目一')
-    const secondProjectId = createProject(store, '项目二')
+    const second = createProjectWithTask(store, '项目二')
+    const secondProjectId = second.projectId
     const wrapper = mount(WorkbenchView)
 
-    const secondTask = store.current?.tasks[0]
-    if (secondTask === undefined) throw new Error('缺少第二个项目任务')
-    await wrapper.get('#evidence-task').setValue(secondTask.id)
+    await wrapper.get('#evidence-task').setValue(second.taskId)
     await wrapper.get('#evidence-did').setValue('项目二的进展')
     await wrapper.find('select.proj-select').setValue(firstProjectId)
     await wrapper.vm.$nextTick()

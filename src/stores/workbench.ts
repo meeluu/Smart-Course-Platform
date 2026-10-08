@@ -7,12 +7,12 @@ import type {
   NewTaskDraft,
   Project,
   Task,
-  Template,
 } from '@/types/platform'
 import { PROJECT_SCHEMA_VERSION } from '@/types/platform'
-import { TEMPLATES, TOPICS } from '@/data/topics'
+// 只借用题目名称列表：TEMPLATES 不再参与创建流程（见 createProject 的说明）
+import { TOPICS } from '@/data/topics'
 // 论文方向只从这一个入口取：现在返回模板预置内容，接入后端后换实现即可，页面无需改动
-import { generateDirection, genericDirections, presetDirections } from '@/services/papers'
+import { generateDirection } from '@/services/papers'
 // 建议请求：适配层负责 HTTP 与契约校验，mvpFallbacks 负责后端不可用时的本地兜底
 import {
   buildAdvisorRequest,
@@ -292,44 +292,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     window.scrollTo(0, 0)
   }
 
-  /** 自定义题目的通用模板，字段与 mockup 一致，名称按输入插值 */
-  function customTemplate(name: string): Template {
-    return {
-      short: name.length > 8 ? `${name.slice(0, 8)}…` : name,
-      ms: [
-        { t: '选题确认与文献调研', s: 'cur', p: 10, sub: '刚启动' },
-        { t: '数据获取与预处理', s: 'todo', p: 0, sub: '未开始' },
-        { t: '核心方法 / 模型实现', s: 'todo', p: 0, sub: '未开始' },
-        { t: '分析与验证', s: 'todo', p: 0, sub: '未开始' },
-        { t: '系统集成与结题报告', s: 'todo', p: 0, sub: '未开始' },
-      ],
-      doubts: ['项目的具体范围和技术路线还没有和指导老师确认'],
-      banner:
-        '项目刚启动。建议先把三件事定下来：研究目标的一句话描述、主流方法的文献调研、数据或工具的可获取性验证。上传实验手册后，我可以按手册要求进一步细化步骤。',
-      steps: [
-        {
-          t: '用一句话写清项目目标与预期产出',
-          owner: '成员A',
-          why: '目标不清是所有后续分歧的根源。一句话目标（为谁、解决什么、产出什么）能让全组对齐，也是 AI 追踪进度的基准。',
-          done: '一句话目标 + 预期产出清单，全组确认。',
-        },
-        {
-          t: '完成主流方法的文献调研',
-          owner: '成员B',
-          why: '不了解现有方法就动手，大概率走弯路。用「论文推荐」页的检索提示词查 5-8 篇相关文献。',
-          done: '调研笔记：2-3 类主流方法 + 各自优缺点 + 初步倾向。',
-        },
-        {
-          t: '验证数据 / 工具的可获取性',
-          owner: '成员C',
-          why: '大数据项目最常见的失败原因是数据拿不到或环境搭不起来，第一周必须验证。',
-          done: '确认数据来源或工具链可用，附验证记录。',
-        },
-      ],
-      papers: genericDirections(name),
-    }
-  }
-
   /** 把旧表单入参统一成契约入参。新旧入口都走这一条路径，不存在第二套逻辑 */
   function normalizeCreateInput(
     input: CreateProjectInput | LegacyCreateProjectInput,
@@ -355,7 +317,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   /**
    * 契约 3.2：createProject。
-   * 生成 projectId / projectRevision=1 / schemaVersion，并把模板步骤实例化成结构化任务。
+   *
+   * **只设置项目名称，不注入任何项目内容**：新建出来的项目是空白的——没有任务、疑问、
+   * 里程碑、证据、聊天记录与论文方向。题目名称清单（TOPICS）继续保留，选中某个名称只
+   * 表示"这个项目的名字叫它"，不再把该题目的示例内容复制进来。
+   *
+   * `TEMPLATES`（src/data/topics.ts）因此只作为示例/测试数据保留，不参与创建流程；
+   * 任务与建议等用户上传材料、写下项目目标或提交第一条进展后再由 AI 给出。
    */
   function createProject(
     input: CreateProjectInput | LegacyCreateProjectInput,
@@ -368,7 +336,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
 
     let name: string
-    let tpl: Template
 
     if (normalized.topicId === '__custom__') {
       name = (normalized.customName ?? '').trim()
@@ -376,78 +343,42 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         toast('请填写自定义项目名称')
         return localFailure('INVALID_INPUT', '请填写自定义项目名称')
       }
-      tpl = customTemplate(name)
     } else {
-      const found: Template | undefined = TEMPLATES[normalized.topicId]
-      if (found === undefined) {
+      // 只校验"名称存在"：项目内容不会因此被带入
+      if (!TOPICS.includes(normalized.topicId)) {
         toast('没有找到这个题目，请重新选择')
         return localFailure('NOT_FOUND', '没有找到这个题目，请重新选择')
       }
       name = normalized.topicId
-      tpl = found
     }
 
     const projectId = createProjectId()
-    const timestamp = nowIso()
-    const milestone = tpl.ms.find((item) => item.s === 'cur')?.t ?? tpl.ms[0]?.t ?? null
-
-    const tasks: Task[] = tpl.steps.map((step) => ({
-      id: createTaskId(),
-      projectId,
-      title: step.t,
-      status: 'todo',
-      doneCriteria: normalizeNullable(step.done),
-      // 契约 2.2：MVP 无成员名单，线上 owner 恒为 null
-      owner: null,
-      // 模板里的「成员A / 成员B」只作为旧页面的展示内容
-      suggestedOwner: normalizeNullable(step.owner),
-      milestone,
-      why: normalizeNullable(step.why),
-      // 模板任务不是由 draft 创建的，没有幂等键
-      draftKey: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    }))
-
-    const doubtRecords: Doubt[] = tpl.doubts.map((text) => ({
-      id: createDoubtId(),
-      projectId,
-      text,
-      status: 'open',
-      sourceEvidenceId: null,
-      createdAt: timestamp,
-      resolvedAt: null,
-    }))
-
     const memberCount = normalized.members > 0 ? normalized.members : 3
 
+    // 空白项目：除名称与基本元数据外，任务 / 疑问 / 里程碑 / 证据 / 聊天 / 论文方向都从零开始
     const project: Project = {
-      ...JSON.parse(JSON.stringify(tpl)),
-      // 覆盖模板里的 papers：论文方向的唯一来源，便于日后换成后端接口
-      papers: presetDirections({ topic: normalized.topicId, projectName: name }),
       projectId,
       projectRevision: 1,
       schemaVersion: PROJECT_SCHEMA_VERSION,
       name,
+      short: name.length > 8 ? `${name.slice(0, 8)}…` : name,
       group: `第 ${projects.value.length + 1} 组`,
       members: `${memberCount} 名成员`,
       updated: '项目创建于今天 · 等待第一条证据',
-      tasks,
-      evidenceRecords: [],
-      doubtRecords,
-      evidence: [],
-      doubts: [],
-      steps: [],
+      banner:
+        '这是一个空白项目。请先上传材料、填写项目目标或提交第一条进展，AI 才能生成有依据的下一步建议。',
+      ms: [],
+      papers: [],
       weekly: [0, 0, 0, 0],
       materials: [],
-      chat: [
-        {
-          who: 'AI 顾问',
-          me: false,
-          text: `你好，我是「${tpl.short}」项目的顾问。项目刚启动，我已为你们生成了最初的步骤（见上方推荐）。上传实验手册或数据集后，我会解析内容让步骤追踪更精准。有问题随时问我。`,
-        },
-      ],
+      chat: [],
       aiPapers: [],
+      tasks: [],
+      evidenceRecords: [],
+      doubtRecords: [],
+      steps: [],
+      evidence: [],
+      doubts: [],
     }
 
     const manualName = normalizeNullable(normalized.manualName)
@@ -472,8 +403,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     window.scrollTo(0, 0)
     toast(
       project.materials.length
-        ? `项目已创建，AI 已解析 ${project.materials.length} 份材料并开始追踪步骤`
-        : '项目已创建，AI 已生成启动步骤',
+        ? `项目已创建，已登记 ${project.materials.length} 份材料；提交第一条进展后 AI 会给出建议`
+        : '项目已创建。项目内容为空，上传材料或写下项目目标后 AI 会给出建议',
     )
 
     return { ok: true, data: { projectId, projectRevision: project.projectRevision } }

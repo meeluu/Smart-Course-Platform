@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { CURRENT_SCHEMA_VERSION, STORAGE_KEY_PROJECTS } from '@/stores/persistence'
 import { useWorkbenchStore } from '@/stores/workbench'
+import { TOPICS } from '@/data/topics'
 import type { AdvisorRecommendationsRequest, NewTaskDraft } from '@/domain/recommendation'
+import type { Doubt, Milestone, Task } from '@/types/platform'
 
 const CUSTOM_TOPIC = '__custom__'
 
@@ -58,12 +60,87 @@ function freshStore(): Store {
   return useWorkbenchStore()
 }
 
-/** 用自定义题目建项目：3 条 todo 任务 + 1 条 open 疑问，结构可预测 */
+/** 用自定义题目建项目：**只有名称**，内容空白（见 createProject 的新语义） */
 function createCustomProject(store: Store, name = '测试项目') {
   return store.createProject({ topicId: CUSTOM_TOPIC, customName: name, members: 3 })
 }
 
+/**
+ * 测试夹具：显式放入"已有内容"的项目（与 createProject 的历史行为同形）。
+ *
+ * createProject 现在只设置名称、不注入任何内容，所以需要"已有任务/里程碑/疑问"的用例
+ * 必须显式调用这里。模板内容在这里是**测试数据**，不是创建流程的一部分——这正是要证明的事。
+ * 直接写 project 字段是因为公开 action 里没有"创建 todo 任务"的入口（认领只会得到 doing）。
+ */
+const FIXTURE_MS: Milestone[] = [
+  { t: '选题确认与文献调研', s: 'cur', p: 0, sub: '刚启动' },
+  { t: '数据获取与预处理', s: 'todo', p: 0, sub: '未开始' },
+  { t: '核心方法 / 模型实现', s: 'todo', p: 0, sub: '未开始' },
+  { t: '分析与验证', s: 'todo', p: 0, sub: '未开始' },
+  { t: '系统集成与结题报告', s: 'todo', p: 0, sub: '未开始' },
+]
+
+const FIXTURE_STEPS = [
+  { t: '用一句话写清项目目标与预期产出', owner: '成员A', why: '目标不清是所有后续分歧的根源。', done: '一句话目标 + 预期产出清单，全组确认。' },
+  { t: '完成主流方法的文献调研', owner: '成员B', why: '不了解现有方法就动手，大概率走弯路。', done: '调研笔记：2-3 类主流方法 + 各自优缺点 + 初步倾向。' },
+  { t: '验证数据 / 工具的可获取性', owner: '成员C', why: '数据拿不到或环境搭不起来是第一周必须验证的风险。', done: '确认数据来源或工具链可用，附验证记录。' },
+]
+
+const FIXTURE_DOUBTS = ['项目的具体范围和技术路线还没有和指导老师确认']
+
+function seedTemplateContent(store: Store): void {
+  const project = currentProject(store)
+  const now = new Date().toISOString()
+  const milestone = FIXTURE_MS[0]?.t ?? null
+
+  const tasks: Task[] = FIXTURE_STEPS.map((step, index) => ({
+    id: `tsk_seed${index}${project.projectId.replace(/^prj_/, '')}`,
+    projectId: project.projectId,
+    title: step.t,
+    status: 'todo',
+    doneCriteria: step.done,
+    owner: null,
+    suggestedOwner: step.owner,
+    milestone,
+    why: step.why,
+    draftKey: null,
+    createdAt: now,
+    updatedAt: now,
+  }))
+
+  const doubtRecords: Doubt[] = FIXTURE_DOUBTS.map((text, index) => ({
+    id: `dbt_seed${index}${project.projectId.replace(/^prj_/, '')}`,
+    projectId: project.projectId,
+    text,
+    status: 'open',
+    sourceEvidenceId: null,
+    createdAt: now,
+    resolvedAt: null,
+  }))
+
+  project.ms = JSON.parse(JSON.stringify(FIXTURE_MS)) as Milestone[]
+  project.tasks = tasks
+  project.doubtRecords = doubtRecords
+  // 兼容投影：与 store 的 syncProjectView 保持一致
+  project.steps = FIXTURE_STEPS.map((step) => ({ ...step }))
+  project.doubts = [...FIXTURE_DOUBTS]
+}
+
+/** 建项目并放入示例内容：旧用例的 setup，语义与"创建后自带内容"时代保持一致 */
+function createProjectWithContentOrThrow(store: Store, name = '测试项目'): string {
+  const result = createCustomProject(store, name)
+  if (!result.ok) throw new Error(`创建项目失败：${result.code}`)
+  seedTemplateContent(store)
+  return result.data.projectId
+}
+
+/** 兼容旧用例名称：这些测试需要一个含任务的显式内容夹具。 */
 function createCustomProjectOrThrow(store: Store, name = '测试项目'): string {
+  return createProjectWithContentOrThrow(store, name)
+}
+
+/** 建一个**空白**项目（只有名称），用于验证新语义 */
+function createBlankProjectOrThrow(store: Store, name = '测试项目'): string {
   const result = createCustomProject(store, name)
   if (!result.ok) throw new Error(`创建项目失败：${result.code}`)
   return result.data.projectId
@@ -88,6 +165,142 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+describe('空白项目：createProject 只设置名称，不注入任何内容', () => {
+  it('选择已有项目名称：名称正确，任务 / 证据 / 疑问 / 材料 / 论文 / 聊天 / 里程碑全为空', () => {
+    const store = freshStore()
+    const topicId = TOPICS[0] ?? ''
+
+    const result = store.createProject({ topicId, members: 3 })
+
+    expect(result.ok).toBe(true)
+    const project = currentProject(store)
+    expect(project.name).toBe(topicId)
+    expect(project.projectRevision).toBe(1)
+    expect(project.tasks).toEqual([])
+    expect(project.evidenceRecords).toEqual([])
+    expect(project.doubtRecords).toEqual([])
+    expect(project.materials).toEqual([])
+    expect(project.papers).toEqual([])
+    expect(project.chat).toEqual([])
+    expect(project.ms).toEqual([])
+    expect(project.steps).toEqual([])
+    expect(project.evidence).toEqual([])
+    expect(project.doubts).toEqual([])
+    expect(project.aiPapers).toEqual([])
+    expect(project.weekly).toEqual([0, 0, 0, 0])
+  })
+
+  it('自定义项目同样是空白内容，banner 是通用提示', () => {
+    const store = freshStore()
+    createBlankProjectOrThrow(store, '我的自定义项目')
+
+    const project = currentProject(store)
+    expect(project.name).toBe('我的自定义项目')
+    expect(project.tasks).toEqual([])
+    expect(project.ms).toEqual([])
+    expect(project.doubtRecords).toEqual([])
+    expect(project.chat).toEqual([])
+    expect(project.papers).toEqual([])
+    expect(project.banner).toContain('空白项目')
+  })
+
+  it('题目名称不在清单内时返回 NOT_FOUND，且不创建项目', () => {
+    const store = freshStore()
+
+    expect(store.createProject({ topicId: '不存在的题目', members: 3 })).toMatchObject({
+      ok: false,
+      code: 'NOT_FOUND',
+    })
+    expect(store.projects).toHaveLength(0)
+  })
+
+  it('两个空白项目可以创建与切换，任务互不影响', () => {
+    const store = freshStore()
+    const first = createBlankProjectOrThrow(store, '项目一')
+    const second = createBlankProjectOrThrow(store, '项目二')
+
+    store.claimTask({
+      draft: {
+        title: '项目二的第一条任务',
+        doneCriteria: '留下证据',
+        requestId: null,
+        basisEvidenceIds: [],
+        basisDoubtIds: [],
+      },
+    })
+    expect(currentProject(store).tasks).toHaveLength(1)
+
+    store.selectProject(first)
+    expect(currentProject(store).projectId).toBe(first)
+    expect(currentProject(store).tasks).toHaveLength(0)
+
+    store.selectProject(second)
+    expect(currentProject(store).projectId).toBe(second)
+    expect(currentProject(store).tasks).toHaveLength(1)
+  })
+
+  it('空白项目仍能提交「其他进展」证据（不关联任务），并生成疑问', async () => {
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+
+    const result = await store.submitEvidence({
+      submissionId: 'sub-blank-1',
+      taskId: null,
+      didWhat: '先记录了项目背景与目标',
+      foundWhat: null,
+      stillUnsure: '研究范围还没定',
+      attachmentName: null,
+      complete: false,
+    })
+
+    expect(result.ok).toBe(true)
+    const project = currentProject(store)
+    expect(project.evidenceRecords).toHaveLength(1)
+    expect(project.evidenceRecords[0]?.taskId).toBeNull()
+    expect(project.doubtRecords).toHaveLength(1)
+  })
+
+  it('本地规则对空白项目只提示「先补基本信息」，不编造任务', async () => {
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+
+    const result = await store.refreshRecommendations()
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.data.source).toBe('local-rule')
+    expect(result.data.suggestions).toHaveLength(1)
+    expect(result.data.suggestions[0]?.existingTaskId).toBeNull()
+    expect(result.data.suggestions[0]?.title).toContain('基本信息')
+  })
+
+  it('空白项目认领 AI 给出的新任务后进入 doing', async () => {
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+
+    const recommended = await store.refreshRecommendations()
+    expect(recommended.ok).toBe(true)
+    if (!recommended.ok) return
+    const suggestion = recommended.data.suggestions[0]
+    if (suggestion === undefined) throw new Error('缺少建议')
+
+    const claimed = store.claimTask({
+      draft: {
+        title: suggestion.title,
+        doneCriteria: suggestion.doneCriteria,
+        requestId: suggestion.requestId,
+        basisEvidenceIds: suggestion.basisEvidenceIds,
+        basisDoubtIds: suggestion.basisDoubtIds,
+      },
+    })
+
+    expect(claimed.ok).toBe(true)
+    const task = currentProject(store).tasks[0]
+    expect(task?.status).toBe('doing')
+    expect(task?.title).toBe(suggestion.title)
+  })
+})
+
 describe('createProject：创建与持久化', () => {
   it('生成稳定 projectId，初始 projectRevision 为 1，schemaVersion 为当前版本', () => {
     const store = freshStore()
@@ -107,7 +320,7 @@ describe('createProject：创建与持久化', () => {
 
   it('模板步骤实例化为结构化任务：全部 todo，线上 owner 为 null', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
 
     const tasks = currentTasks(store)
 
@@ -124,7 +337,7 @@ describe('createProject：创建与持久化', () => {
   it('创建成功后写入 localStorage，并切到新项目', () => {
     const store = freshStore()
 
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
 
     expect(store.creating).toBe(false)
     expect(store.hasProject).toBe(true)
@@ -206,7 +419,7 @@ describe('selectProject：用 projectId 切换', () => {
 
   it('不存在的 projectId 返回 NOT_FOUND', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
 
     expect(store.selectProject('prj_missing')).toMatchObject({ ok: false, code: 'NOT_FOUND' })
   })
@@ -214,7 +427,7 @@ describe('selectProject：用 projectId 切换', () => {
   it('兼容旧数组下标入口', () => {
     const store = freshStore()
     const firstId = createCustomProjectOrThrow(store, '项目一')
-    createCustomProjectOrThrow(store, '项目二')
+    createProjectWithContentOrThrow(store, '项目二')
 
     const result = store.selectProject(0)
 
@@ -224,7 +437,7 @@ describe('selectProject：用 projectId 切换', () => {
 
   it('写盘失败时返回 STORAGE_FULL 并把选择回滚', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store, '项目一')
+    createProjectWithContentOrThrow(store, '项目一')
     const secondId = createCustomProjectOrThrow(store, '项目二')
     const before = currentProject(store).projectId
 
@@ -245,7 +458,7 @@ describe('selectProject：用 projectId 切换', () => {
 describe('claimTask：认领与进度', () => {
   it('todo → doing，且不增加完成进度', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const task = project.tasks[0]
     if (task === undefined) throw new Error('缺少任务')
@@ -263,7 +476,7 @@ describe('claimTask：认领与进度', () => {
 
   it('重复认领同一个进行中的任务保持幂等，不递增 revision', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const task = currentProject(store).tasks[0]
     if (task === undefined) throw new Error('缺少任务')
     store.claimTask({ taskId: task.id })
@@ -277,7 +490,7 @@ describe('claimTask：认领与进度', () => {
 
   it('已完成的任务不能再次认领', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const task = currentProject(store).tasks[0]
     if (task === undefined) throw new Error('缺少任务')
     store.claimTask({ taskId: task.id })
@@ -295,7 +508,7 @@ describe('claimTask：认领与进度', () => {
 
   it('不存在的 taskId 返回 NOT_FOUND', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
 
     expect(store.claimTask({ taskId: 'tsk_missing' })).toMatchObject({
       ok: false,
@@ -305,9 +518,9 @@ describe('claimTask：认领与进度', () => {
 
   it('其他项目的 taskId 返回 PROJECT_MISMATCH', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store, '项目一')
+    createProjectWithContentOrThrow(store, '项目一')
     const foreignTaskId = currentProject(store).tasks[0]?.id ?? ''
-    createCustomProjectOrThrow(store, '项目二')
+    createProjectWithContentOrThrow(store, '项目二')
 
     expect(store.claimTask({ taskId: foreignTaskId })).toMatchObject({
       ok: false,
@@ -317,7 +530,7 @@ describe('claimTask：认领与进度', () => {
 
   it('draft 入参直接创建 doing 任务并递增 revision', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const before = currentProject(store)
     const countBefore = before.tasks.length
     const revisionBefore = before.projectRevision
@@ -343,7 +556,7 @@ describe('claimTask：认领与进度', () => {
 
   it('draft 标题为空返回 INVALID_INPUT', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
 
     expect(
       store.claimTask({
@@ -360,7 +573,7 @@ describe('claimTask：认领与进度', () => {
 
   it('同时给出 taskId 与 draft，或都不给出，都按 INVALID_INPUT 处理', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const taskId = currentProject(store).tasks[0]?.id ?? ''
 
     const both = store.claimTask({
@@ -385,7 +598,7 @@ describe('claimTask：认领与进度', () => {
 describe('submitEvidence：记录进展与确认完成', () => {
   it('complete 为 false 时保存证据但不完成任务', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const task = currentProject(store).tasks[0]
     if (task === undefined) throw new Error('缺少任务')
     store.claimTask({ taskId: task.id })
@@ -409,7 +622,7 @@ describe('submitEvidence：记录进展与确认完成', () => {
 
   it('complete 为 true 时只允许 doing 任务转为 done，并更新进度', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const task = project.tasks[0]
     if (task === undefined) throw new Error('缺少任务')
@@ -433,7 +646,7 @@ describe('submitEvidence：记录进展与确认完成', () => {
 
   it('complete 为 true 但任务仍是 todo 时整体失败，不发生部分写入', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const task = project.tasks[0]
     if (task === undefined) throw new Error('缺少任务')
@@ -455,7 +668,7 @@ describe('submitEvidence：记录进展与确认完成', () => {
 
   it('complete 为 true 但未指定任务时返回 INVALID_INPUT', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
 
     const result = await store.submitEvidence({
       submissionId: 'sub-4',
@@ -470,7 +683,7 @@ describe('submitEvidence：记录进展与确认完成', () => {
 
   it('「完成了什么」缺失时返回 INVALID_INPUT 且不写入任何内容', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const revisionBefore = currentProject(store).projectRevision
 
     const result = await store.submitEvidence({
@@ -487,7 +700,7 @@ describe('submitEvidence：记录进展与确认完成', () => {
 
   it('超出长度上限时返回 INVALID_INPUT', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
 
     const result = await store.submitEvidence({
       submissionId: 'sub-6',
@@ -502,7 +715,7 @@ describe('submitEvidence：记录进展与确认完成', () => {
 
   it('「还有什么不确定」会同时生成一条 open 疑问，并指向该证据', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
 
     const result = await store.submitEvidence({
       submissionId: 'sub-7',
@@ -528,7 +741,7 @@ describe('submitEvidence：记录进展与确认完成', () => {
 
   it('没有不确定内容时不生成疑问', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const doubtsBefore = currentProject(store).doubtRecords.length
 
     const result = await store.submitEvidence({
@@ -546,9 +759,9 @@ describe('submitEvidence：记录进展与确认完成', () => {
 
   it('其他项目的 taskId 返回 PROJECT_MISMATCH', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store, '项目一')
+    createProjectWithContentOrThrow(store, '项目一')
     const foreignTaskId = currentProject(store).tasks[0]?.id ?? ''
-    createCustomProjectOrThrow(store, '项目二')
+    createProjectWithContentOrThrow(store, '项目二')
 
     const result = await store.submitEvidence({
       submissionId: 'sub-9',
@@ -563,7 +776,7 @@ describe('submitEvidence：记录进展与确认完成', () => {
 
   it('写盘失败时返回 STORAGE_FULL 并整体回滚', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const revisionBefore = project.projectRevision
 
@@ -585,7 +798,7 @@ describe('submitEvidence：记录进展与确认完成', () => {
 
   it('兼容旧表单入参：按「记录进展」处理且不完成任务', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const task = currentProject(store).tasks[0]
     if (task === undefined) throw new Error('缺少任务')
     store.claimTask({ taskId: task.id })
@@ -613,7 +826,7 @@ describe('submitEvidence：记录进展与确认完成', () => {
 describe('submitEvidence：submissionId 幂等', () => {
   it('重复提交同一 submissionId 不重复写入任何内容', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const task = project.tasks[0]
     if (task === undefined) throw new Error('缺少任务')
@@ -651,7 +864,7 @@ describe('submitEvidence：submissionId 幂等', () => {
 
   it('幂等命中不会把已完成任务改回，也不会重复推进状态', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const task = project.tasks[0]
     if (task === undefined) throw new Error('缺少任务')
@@ -681,7 +894,7 @@ describe('submitEvidence：submissionId 幂等', () => {
 describe('resolveDoubt：真实 doubtId 与静默语义', () => {
   it('按真实 doubtId 解决，写入 resolvedAt 并递增 revision', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const doubt = project.doubtRecords[0]
     if (doubt === undefined) throw new Error('缺少疑问')
@@ -697,7 +910,7 @@ describe('resolveDoubt：真实 doubtId 与静默语义', () => {
 
   it('重复解决保持幂等：返回成功、状态不变、revision 不递增', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const doubt = project.doubtRecords[0]
     if (doubt === undefined) throw new Error('缺少疑问')
@@ -713,16 +926,16 @@ describe('resolveDoubt：真实 doubtId 与静默语义', () => {
 
   it('不存在的 doubtId 返回 NOT_FOUND', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
 
     expect(store.resolveDoubt('dbt_missing')).toMatchObject({ ok: false, code: 'NOT_FOUND' })
   })
 
   it('其他项目的 doubtId 返回 PROJECT_MISMATCH', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store, '项目一')
+    createProjectWithContentOrThrow(store, '项目一')
     const foreignDoubtId = currentProject(store).doubtRecords[0]?.id ?? ''
-    createCustomProjectOrThrow(store, '项目二')
+    createProjectWithContentOrThrow(store, '项目二')
 
     expect(store.resolveDoubt(foreignDoubtId)).toMatchObject({
       ok: false,
@@ -732,7 +945,7 @@ describe('resolveDoubt：真实 doubtId 与静默语义', () => {
 
   it('兼容旧数组下标入口（定位未解决的疑问）', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const doubt = project.doubtRecords[0]
     if (doubt === undefined) throw new Error('缺少疑问')
@@ -745,7 +958,7 @@ describe('resolveDoubt：真实 doubtId 与静默语义', () => {
 describe('projectRevision：只在契约规定的写入后递增', () => {
   it('创建后为 1，认领、提交证据、解决疑问各递增一次', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     expect(project.projectRevision).toBe(1)
 
@@ -770,7 +983,7 @@ describe('projectRevision：只在契约规定的写入后递增', () => {
 
   it('刷新建议不会改变 revision，AI 失败也不会', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const before = project.projectRevision
 
@@ -783,8 +996,8 @@ describe('projectRevision：只在契约规定的写入后递增', () => {
 
   it('读取与项目切换都不改变任何项目的 revision', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store, '项目一')
-    createCustomProjectOrThrow(store, '项目二')
+    createProjectWithContentOrThrow(store, '项目一')
+    createProjectWithContentOrThrow(store, '项目二')
     const snapshot = store.projects.map((item) => item.projectRevision)
 
     void store.current
@@ -837,8 +1050,8 @@ describe('项目隔离', () => {
 
   it('切换项目不改变两边的持久化数据', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store, '项目一')
-    createCustomProjectOrThrow(store, '项目二')
+    createProjectWithContentOrThrow(store, '项目一')
+    createProjectWithContentOrThrow(store, '项目二')
     const firstId = store.projects[0]?.projectId ?? ''
 
     store.selectProject(firstId)
@@ -854,7 +1067,7 @@ describe('项目隔离', () => {
 describe('刷新的建议结果不会污染项目状态', () => {
   it('建议失败走本地规则兜底，且不动任务与证据', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const before = JSON.stringify({
       tasks: project.tasks,
@@ -881,7 +1094,7 @@ describe('刷新的建议结果不会污染项目状态', () => {
 
   it('本地规则建议不推荐已完成任务，依据 ID 落在当前项目内', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const task = project.tasks[0]
     if (task === undefined) throw new Error('缺少任务')
@@ -977,7 +1190,7 @@ async function waitUntilNotLoading(store: Store): Promise<void> {
 describe('F1 回归：状态变化后旧响应被丢弃，loading 不得永久停留', () => {
   it('同一项目 revision 变化且无新请求时，替代请求接管并收敛到实际结果状态', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const task = project.tasks[0]
     if (task === undefined) throw new Error('缺少任务')
@@ -1027,7 +1240,7 @@ describe('F1 回归：状态变化后旧响应被丢弃，loading 不得永久�
 
   it('已有更新的请求在途时，旧请求静默结束且不改变新请求的状态', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
 
     const bodies: AdvisorRecommendationsRequest[] = []
     const releases: Array<((response: Response) => void) | undefined> = []
@@ -1065,7 +1278,7 @@ describe('F1 回归：状态变化后旧响应被丢弃，loading 不得永久�
 
   it('服务端回显与本次请求不符且版本未变时，回到可重试的 idle 且不再重复请求', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const bodies: AdvisorRecommendationsRequest[] = []
     const fetchImpl = vi.fn(async (_input: unknown, init?: RequestInit) => {
       const body = requestBodyOf(init)
@@ -1116,7 +1329,7 @@ describe('F2 回归：相同 draft 重复认领必须幂等', () => {
 
   it('连续两次相同 draft 只创建一条任务，返回同一个 taskId，revision 只加一次', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const countBefore = project.tasks.length
     const revisionBefore = project.projectRevision
@@ -1136,7 +1349,7 @@ describe('F2 回归：相同 draft 重复认领必须幂等', () => {
 
   it('同一 tick 内并发调用相同 draft 也只创建一条任务（竞态）', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const countBefore = project.tasks.length
     const revisionBefore = project.projectRevision
@@ -1155,7 +1368,7 @@ describe('F2 回归：相同 draft 重复认领必须幂等', () => {
 
   it('命中已有任务时不重复持久化', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     store.claimTask({ draft: draftOf() })
 
     const setItemCalls = countSetItemCalls()
@@ -1167,7 +1380,7 @@ describe('F2 回归：相同 draft 重复认领必须幂等', () => {
 
   it('去重身份覆盖 draft 的全部语义字段，任一不同都创建新任务', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const countBefore = project.tasks.length
 
@@ -1193,7 +1406,7 @@ describe('F2 回归：相同 draft 重复认领必须幂等', () => {
 
   it('依据 ID 顺序不同仍视为同一 draft（键经过规范化）', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
     const countBefore = project.tasks.length
 
@@ -1209,11 +1422,11 @@ describe('F2 回归：相同 draft 重复认领必须幂等', () => {
 
   it('不同项目之间的相同 draft 各自创建任务（去重限定在同一项目内）', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store, '项目一')
+    createProjectWithContentOrThrow(store, '项目一')
     const first = store.claimTask({ draft: draftOf() })
     const firstProjectTaskCount = currentProject(store).tasks.length
 
-    createCustomProjectOrThrow(store, '项目二')
+    createProjectWithContentOrThrow(store, '项目二')
     const second = store.claimTask({ draft: draftOf() })
 
     expect(first.ok).toBe(true)
@@ -1226,7 +1439,7 @@ describe('F2 回归：相同 draft 重复认领必须幂等', () => {
 
   it('刷新恢复后相同 draft 仍命中同一条任务（幂等键已持久化）', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const first = store.claimTask({ draft: draftOf() })
     if (!first.ok) throw new Error('第一次认领失败')
 
@@ -1245,7 +1458,7 @@ describe('F2 回归：相同 draft 重复认领必须幂等', () => {
 
   it('模板任务与认领已有任务没有幂等键，draft 任务带键', () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     const project = currentProject(store)
 
     expect(project.tasks.every((item) => item.draftKey === null)).toBe(true)
@@ -1259,7 +1472,7 @@ describe('F2 回归：相同 draft 重复认领必须幂等', () => {
 
   it('draft 幂等键不进入 advisor 请求快照', async () => {
     const store = freshStore()
-    createCustomProjectOrThrow(store)
+    createProjectWithContentOrThrow(store)
     store.claimTask({ draft: draftOf() })
 
     const bodies: AdvisorRecommendationsRequest[] = []

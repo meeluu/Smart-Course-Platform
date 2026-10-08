@@ -56,13 +56,14 @@ function makeInput(overrides: Partial<LocalRecommendationInput> = {}): LocalReco
   }
 }
 
-describe('没有可推荐的内容时返回空数组', () => {
-  it('空项目（无任务、无疑问、无里程碑）不产出建议', () => {
+describe('空白项目的本地规则建议', () => {
+  it('空项目（无任务、无疑问、无里程碑）提示先补基本信息', () => {
     const result = buildLocalRecommendations(
       makeInput({ currentMilestone: null, tasks: [], evidence: [], doubts: [] }),
     )
 
-    expect(result).toEqual([])
+    expect(result).toHaveLength(1)
+    expect(result[0]?.title).toBe('先补上项目的基本信息')
   })
 
   it('字段缺失时按空数组处理，不抛异常', () => {
@@ -75,7 +76,8 @@ describe('没有可推荐的内容时返回空数组', () => {
       }),
     )
 
-    expect(result).toEqual([])
+    expect(result).toHaveLength(1)
+    expect(result[0]?.title).toBe('先补上项目的基本信息')
   })
 })
 

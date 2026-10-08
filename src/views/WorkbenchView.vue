@@ -91,6 +91,21 @@ const ERROR_TEXT: Record<string, string> = {
 const aiStatus = computed(() => store.aiStatus)
 const isRequesting = computed(() => store.aiStatus === 'loading')
 
+/**
+ * 空白项目：创建后还没有任何任务、证据与疑问，也就是用户尚未输入任何项目内容。
+ * 这类项目不该显示"伪造的建议依据"，而是提示先补材料或目标（见 createProject 的新语义）。
+ */
+const isBlankProject = computed(() => {
+  const p = project.value
+  if (!p) return false
+  return (
+    (p.tasks?.length ?? 0) === 0 &&
+    (p.evidenceRecords?.length ?? 0) === 0 &&
+    (p.doubtRecords?.length ?? 0) === 0 &&
+    (p.materials?.length ?? 0) === 0
+  )
+})
+
 /** 兜底/失败原因：优先用响应里的 fallbackReason，其次用适配层保留的错误码 */
 const reasonText = computed(() => {
   const fallbackReason = store.advisor.fallbackReason
@@ -107,7 +122,9 @@ const reasonText = computed(() => {
 const statusLine = computed(() => {
   switch (store.aiStatus) {
     case 'idle':
-      return '还没有建议。点一下「获取建议」，AI 会结合项目当前状态、最近证据和未解决的疑问，给出 1～3 条下一步建议。'
+      return isBlankProject.value
+        ? '这是一个空白项目。先上传材料、填写项目目标或提交第一条进展，再点「获取建议」，AI 才有可分析的依据。'
+        : '还没有建议。点一下「获取建议」，AI 会结合项目当前状态、最近证据和未解决的疑问，给出 1～3 条下一步建议。'
     case 'loading':
       return '正在分析项目状态…'
     case 'model':
@@ -149,6 +166,7 @@ const statusTag = computed(() => {
 
 const requestLabel = computed(() => {
   if (isRequesting.value) return '分析中…'
+  if (isBlankProject.value) return '等待项目内容'
   if (store.aiStatus === 'idle') return '获取建议'
   if (store.aiStatus === 'error' || store.aiStatus === 'local-rule') return '重试'
   return '重新获取'
@@ -156,7 +174,7 @@ const requestLabel = computed(() => {
 
 /** 契约 5.3：loading 期间禁止重复点击触发并发请求 */
 function requestSuggestions() {
-  if (isRequesting.value) return
+  if (isRequesting.value || isBlankProject.value) return
 
   void store
     .refreshRecommendations({ forceRefresh: store.aiStatus !== 'idle' })
@@ -496,7 +514,7 @@ const openDoubts = computed(() =>
               :tag="statusTag"
               :message="statusLine"
               :action-label="requestLabel"
-              :busy="isRequesting"
+              :busy="isRequesting || isBlankProject"
               @retry="requestSuggestions"
             />
 
@@ -507,7 +525,13 @@ const openDoubts = computed(() =>
               class="empty"
               style="padding:4px 0 0;"
             >
-              {{ aiStatus === 'idle' ? '点上方按钮开始。' : '这次没有生成建议，可以点上方按钮重新获取。' }}
+              {{
+                aiStatus === 'idle'
+                  ? isBlankProject
+                    ? '空白项目还没有可分析的依据：先补充材料或项目目标。'
+                    : '点上方按钮开始。'
+                  : '这次没有生成建议，可以点上方按钮重新获取。'
+              }}
             </div>
           </div>
         </div>
@@ -521,6 +545,10 @@ const openDoubts = computed(() =>
           </div>
           <div class="card-b">
             <div class="ai-banner">{{ project.banner }}</div>
+
+            <div v-if="!project.steps.length" class="empty">
+              当前还没有项目步骤。
+            </div>
 
             <div v-for="(step, index) in project.steps" :key="step.t" class="step-card">
               <div class="sc-top">
@@ -552,10 +580,15 @@ const openDoubts = computed(() =>
             >{{ project.short }}</span>
           </div>
           <div class="card-b">
-            <ProjectMindMap :project="project" />
-            <div style="font-size:12px;color:#888780;text-align:center;margin-top:4px;">
-              左侧为里程碑，右侧为 AI 正在追踪的当前实际步骤 · 绿=已完成，蓝=进行中，灰=未开始
+            <div v-if="!project.steps.length" class="empty" style="padding:4px 0;">
+              还没有任务。上传材料或提交项目目标后，AI 会生成项目步骤。
             </div>
+            <template v-else>
+              <ProjectMindMap :project="project" />
+              <div style="font-size:12px;color:#888780;text-align:center;margin-top:4px;">
+                左侧为里程碑，右侧为 AI 正在追踪的当前实际步骤 · 绿=已完成，蓝=进行中，灰=未开始
+              </div>
+            </template>
           </div>
         </div>
 
@@ -568,6 +601,9 @@ const openDoubts = computed(() =>
           </div>
           <div class="card-b">
             <div ref="chatLog" class="chat-log">
+              <div v-if="!project.chat.length" class="empty" style="padding:4px 0;">
+                还没有对话。把你卡住的地方或想确认的事写下来，AI 会结合当前项目状态回答。
+              </div>
               <div v-for="(msg, i) in project.chat" :key="i" class="msg" :class="{ me: msg.me }">
                 <div>
                   <div class="who" :style="msg.me ? 'text-align:right;' : ''">{{ msg.who }}</div>
