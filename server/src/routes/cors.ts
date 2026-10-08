@@ -6,6 +6,7 @@ import { sendJson } from './health.js'
 export const ALLOWED_CORS_ORIGINS = [
   'https://course.xinxian-music.xyz',
   'http://localhost:5173',
+  'http://127.0.0.1:5173',
 ] as const
 
 function requestPath(req: IncomingMessage): string {

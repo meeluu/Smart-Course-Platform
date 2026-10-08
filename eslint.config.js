@@ -12,6 +12,7 @@ export default tseslint.config(
       'node_modules_legacy_vue2/**',
       'src/content/**',
       'public/**',
+      '.codex/**',
     ],
   },
   ...tseslint.configs.recommended,

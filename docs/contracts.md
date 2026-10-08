@@ -681,7 +681,7 @@ GET /health
 
 | 项 | 约定 |
 | --- | --- |
-| 允许来源 | 允许生产来源 `https://course.xinxian-music.xyz` 与本地开发来源 `http://localhost:5173`；其他带 `Origin` 的来源返回 403 |
+| 允许来源 | 允许生产来源 `https://course.xinxian-music.xyz` 与本地开发来源 `http://localhost:5173`、`http://127.0.0.1:5173`；其他带 `Origin` 的来源返回 403 |
 | 方法 | `POST`、`OPTIONS`（预检必须显式处理） |
 | 请求头 | `Content-Type`；MVP 不使用 Cookie，因此 `Access-Control-Allow-Credentials` 保持关闭 |
 | 缓存 | API 响应禁止公共边缘缓存（`Cache-Control: no-store`）；当前未实现服务端建议缓存，`cached` 固定为 `false` |

@@ -29,7 +29,7 @@ npm install
 npm run dev        # 打开 http://localhost:5173/
 npm run build      # 产物到 dist/
 npm run typecheck
-npm test           # 前端 Vitest 测试（当前 8 个测试文件、187 条用例）
+npm test           # 前端 Vitest 测试（当前 12 个测试文件、485 条用例）
 ```
 
 Node 20.19+ 或 22.12+（Vite 8 的要求）。

@@ -9,7 +9,11 @@ import { createRuleFallback } from '../src/advisor/fallback.js'
 import { silentLogger, type AdvisorProvider } from '../src/advisor/types.js'
 import type { ServerConfig } from '../src/config.js'
 
-const ALLOWED_ORIGINS = ['https://course.xinxian-music.xyz', 'http://localhost:5173'] as const
+const ALLOWED_ORIGINS = [
+  'https://course.xinxian-music.xyz',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+] as const
 const DENIED_ORIGIN = 'https://example.com'
 const PATH = '/api/advisor/recommendations'
 const config: ServerConfig = {
