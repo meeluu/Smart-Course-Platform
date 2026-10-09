@@ -1497,3 +1497,198 @@ describe('F2 回归：相同 draft 重复认领必须幂等', () => {
     }
   })
 })
+
+describe('claimTask：对已认领任务重复点击的反馈与幂等', () => {
+  /** 让后续写盘可计数（命中的幂等分支必须一次都不写） */
+  function countSetItemCalls(): () => number {
+    const storage = createMemoryStorage()
+    const originalSetItem = storage.setItem
+    let calls = 0
+    storage.setItem = (key: string, value: string) => {
+      calls += 1
+      originalSetItem(key, value)
+    }
+    vi.stubGlobal('localStorage', storage)
+    return () => calls
+  }
+
+  it('再次认领同一进行中任务：不写盘、不递增 revision，并提示「已认领」', () => {
+    const store = freshStore()
+    createProjectWithContentOrThrow(store)
+    const project = currentProject(store)
+    const task = project.tasks[0]
+    if (task === undefined) throw new Error('缺少任务')
+
+    store.claimTask({ taskId: task.id })
+    const revisionAfterFirst = project.projectRevision
+    const toastAfterFirst = store.toastText
+
+    const setItemCalls = countSetItemCalls()
+    const again = store.claimTask({ taskId: task.id })
+
+    expect(again).toMatchObject({ ok: true, data: { taskId: task.id, status: 'doing' } })
+    expect(setItemCalls()).toBe(0)
+    expect(project.projectRevision).toBe(revisionAfterFirst)
+    expect(project.tasks.filter((item) => item.id === task.id)).toHaveLength(1)
+    expect(store.toastText).toContain('已认领')
+    expect(store.toastText).not.toBe(toastAfterFirst)
+  })
+})
+
+describe('项目状态提示：banner 随真实数据更新，不写死空白项目', () => {
+  const draft = {
+    title: '写清项目目标与预期产出',
+    doneCriteria: '一页目标说明',
+    requestId: null,
+    basisEvidenceIds: [],
+    basisDoubtIds: [],
+  }
+
+  it('新建项目 → 认领任务后：提示从「空白项目」变成任务状态', () => {
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+    expect(currentProject(store).banner).toContain('空白项目')
+
+    store.claimTask({ draft })
+
+    const banner = currentProject(store).banner
+    expect(banner).not.toContain('空白项目')
+    expect(banner).toContain('进行中 1')
+  })
+
+  it('上传材料后空白提示消失', () => {
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+
+    store.uploadMaterial('实验手册', '实验手册.pdf')
+
+    const banner = currentProject(store).banner
+    expect(banner).not.toContain('空白项目')
+    expect(banner).toContain('1 份材料')
+  })
+
+  it('提交第一条进展后空白提示消失', async () => {
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+
+    const result = await store.submitEvidence({
+      submissionId: 'sub-blank-1',
+      taskId: null,
+      didWhat: '读了 2 篇文献并整理了结论',
+      complete: false,
+    })
+
+    expect(result.ok).toBe(true)
+    const banner = currentProject(store).banner
+    expect(banner).not.toContain('空白项目')
+    expect(banner).toContain('1 条证据')
+  })
+
+  it('提出疑问（仍有不确定）后空白提示消失', async () => {
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+
+    await store.submitEvidence({
+      submissionId: 'sub-blank-2',
+      taskId: null,
+      didWhat: '试了一次数据下载',
+      stillUnsure: '数据集的分辨率是否够用？',
+      complete: false,
+    })
+
+    const project = currentProject(store)
+    expect(project.doubtRecords).toHaveLength(1)
+    expect(project.banner).not.toContain('空白项目')
+    expect(project.banner).toContain('待解决疑问')
+  })
+
+  it('刷新恢复后仍按真实数据展示，不会退回空白提示', () => {
+    const store = freshStore()
+    const projectId = createBlankProjectOrThrow(store)
+    store.claimTask({ draft })
+
+    // 重建 store 相当于刷新页面：localStorage 保留
+    const reloaded = freshStore()
+
+    expect(reloaded.current?.projectId).toBe(projectId)
+    expect(reloaded.current?.banner).not.toContain('空白项目')
+    expect(reloaded.current?.banner).toContain('进行中 1')
+    expect(reloaded.current?.tasks).toHaveLength(1)
+  })
+})
+
+describe('向顾问提问：本地演示回复', () => {
+  it('提问与回复都记在当前项目，回复署名「本地提示」', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = freshStore()
+      const firstProjectId = createBlankProjectOrThrow(store, '项目一')
+      const secondProjectId = createBlankProjectOrThrow(store, '项目二')
+
+      store.sendChat('这个方法在我们的数据上适用吗？')
+      expect(currentProject(store).chat).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(700)
+
+      const chat = currentProject(store).chat
+      expect(chat).toHaveLength(2)
+      expect(chat[1]?.who).toBe('本地提示')
+      expect(chat[1]?.who).not.toBe('AI 顾问')
+
+      // 聊天记录按项目保存：切换项目互不串
+      store.selectProject(firstProjectId)
+      expect(currentProject(store).chat).toHaveLength(0)
+      store.selectProject(secondProjectId)
+      expect(currentProject(store).chat).toHaveLength(2)
+      expect(store.projects.find((item) => item.projectId === firstProjectId)?.chat).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('askAboutStep 按 taskId 定位任务，不依赖数组下标', () => {
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+
+    // 先建一条别的任务：目标任务的下标就不是 0 了
+    store.claimTask({
+      draft: {
+        title: '先做文献调研',
+        doneCriteria: '调研笔记',
+        requestId: null,
+        basisEvidenceIds: [],
+        basisDoubtIds: [],
+      },
+    })
+    const claimed = store.claimTask({
+      draft: {
+        title: '写清项目目标与预期产出',
+        doneCriteria: '一页目标说明',
+        requestId: null,
+        basisEvidenceIds: [],
+        basisDoubtIds: [],
+      },
+    })
+    if (!claimed.ok) throw new Error('认领失败')
+    expect(currentProject(store).tasks[0]?.id).not.toBe(claimed.data.taskId)
+
+    store.askAboutStep(claimed.data.taskId)
+
+    const chat = currentProject(store).chat
+    expect(chat).toHaveLength(2)
+    expect(chat[0]?.who).toBe('我')
+    expect(chat[0]?.text).toContain('写清项目目标与预期产出')
+    expect(chat[1]?.who).toBe('本地提示')
+    expect(chat[1]?.text).toContain('一页目标说明')
+  })
+
+  it('askAboutStep 对不存在的任务给出提示，不写入聊天记录', () => {
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+
+    store.askAboutStep('tsk_missing')
+
+    expect(currentProject(store).chat).toHaveLength(0)
+    expect(store.toastText).toContain('已经不在当前项目')
+  })
+})

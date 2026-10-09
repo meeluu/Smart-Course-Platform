@@ -38,8 +38,11 @@ import {
   currentMilestoneName,
   deriveStepViews,
   deriveTaskSnapshots,
+  draftKeyOf,
   syncMilestones,
 } from '@/domain/progress'
+// 项目状态摘要：空白项目提示与「AI 项目顾问」说明文字的唯一来源
+import { BLANK_PROJECT_NOTE, summarizeProjectStatus } from '@/domain/projectStatus'
 import type {
   ActionResult,
   AdvisorApiError,
@@ -72,8 +75,16 @@ export const WEEK_LABELS = ['8.31-9.6', '9.7-9.13', '9.14-9.20', '9.21-9.27']
 /** 中文序号，用于里程碑编号 */
 export const CHINESE_NUM = ['①', '②', '③', '④', '⑤', '⑥']
 
-/** 答疑模式下的回复池：给方向，不给答案 */
-const AI_REPLIES = [
+/**
+ * 本地演示回复的署名。
+ * 后端目前**没有**聊天接口（只有 POST /api/advisor/recommendations），
+ * 所以这几条回复一律署名为「本地提示」，界面上也不出现"AI 生成"的表述——
+ * 不把固定文案伪装成真实 AI 输出。
+ */
+const LOCAL_REPLY_NAME = '本地提示'
+
+/** 本地固定回复池（答疑演示）：给方向，不给答案 */
+const LOCAL_REPLIES = [
   '项目刚启动，建议先按推荐的步骤走——完成任何一步后记得提交证据，我会据此更新状态并给出下一步。',
   '这个问题可以先用「论文推荐」页的检索提示词查一查，把文献结论带回组内讨论，调研结论本身就是很好的第一条证据。',
   '我不直接给答案，但提示一个方向：先想清楚这个问题影响哪个里程碑的决策——如果影响启动方向就值得现在花时间；如果只是细节，先记下来往前走。',
@@ -126,41 +137,28 @@ function normalizeNullable(value: string | null | undefined): string | null {
   return isBlank(value) ? null : (value as string).trim()
 }
 
-/**
- * 契约 3.2 约束 4：同一项目内字段完全相同的 `draft` 重复提交必须幂等。
- *
- * 用规范化后的 draft 内容生成稳定键：字段顺序固定、ID 数组排序后再参与拼接，
- * 因此「同一组引用、书写顺序不同」也会命中同一条任务；
- * 标题、完成标志、来源请求与两组依据任一不同都会生成不同的键，不会误合并不同任务。
- */
-function draftKeyOf(draft: NewTaskDraft): string {
-  const normalizeIds = (value: string[] | null | undefined): string[] => {
-    if (!Array.isArray(value)) return []
-    return value.map((item) => String(item)).sort()
-  }
-
-  return JSON.stringify([
-    draft.title.trim(),
-    isBlank(draft.doneCriteria) ? null : (draft.doneCriteria as string).trim(),
-    isBlank(draft.requestId) ? null : draft.requestId,
-    normalizeIds(draft.basisEvidenceIds),
-    normalizeIds(draft.basisDoubtIds),
-  ])
-}
+// 契约 3.2 约束 4 的 draft 幂等键实现在 domain（domain/progress.ts），
+// 页面判断「是否已认领」时用的是同一个键，因此从 store 再导出一次保持既有入口不变。
+export { draftKeyOf }
 
 /**
  * 把真实状态（`tasks` / `evidenceRecords` / `doubtRecords`）投影成旧页面读的字段。
  * 每次本地写入成功后调用：**真实数据只有一份**，这三个数组永远是派生结果。
+ *
+ * `banner` 也在这里按真实数据重算：项目一旦有材料 / 证据 / 疑问 / 任务，
+ * 就不该再显示「这是一个空白项目」——刷新恢复时同样走这里，文案不会退回空白态。
  */
 function syncProjectView(project: Project): void {
   if (!Array.isArray(project.tasks)) project.tasks = []
   if (!Array.isArray(project.evidenceRecords)) project.evidenceRecords = []
   if (!Array.isArray(project.doubtRecords)) project.doubtRecords = []
+  if (!Array.isArray(project.materials)) project.materials = []
 
   syncMilestones(project)
   project.steps = deriveStepViews(project)
   project.evidence = deriveEvidenceViews(project)
   project.doubts = deriveDoubtTexts(project)
+  project.banner = summarizeProjectStatus(project).note
 }
 
 /**
@@ -365,8 +363,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       group: `第 ${projects.value.length + 1} 组`,
       members: `${memberCount} 名成员`,
       updated: '项目创建于今天 · 等待第一条证据',
-      banner:
-        '这是一个空白项目。请先上传材料、填写项目目标或提交第一条进展，AI 才能生成有依据的下一步建议。',
+      // 初始文案与空白态一致；之后由 syncProjectView 按真实数据重算
+      banner: BLANK_PROJECT_NOTE,
       ms: [],
       papers: [],
       weekly: [0, 0, 0, 0],
@@ -460,9 +458,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   function uploadMaterial(type: MaterialType, fileName: string) {
     const project = current.value
     if (project === undefined) return
-    project.materials.push({ name: fileName, type })
-    // 材料名不影响建议，因此不递增 projectRevision
-    if (!persistOrRollback(() => project.materials.pop())) {
+
+    // 材料名不影响建议，因此不递增 projectRevision；
+    // 但上传材料后项目就不再是空白项目，所以要重建视图（banner 随真实数据更新）
+    const saved = commit(project, () => {
+      project.materials.push({ name: fileName, type })
+    })
+    if (!saved.ok) {
       toast('本地存储不可用，材料没有保存')
       return
     }
@@ -576,8 +578,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       return localFailure('TASK_NOT_CLAIMABLE', '该任务已完成')
     }
 
-    // 已经是 doing：幂等，不改变状态、不递增 revision
+    // 已经是 doing：幂等——不改变状态、不递增 revision、不重复写盘，
+    // 但仍然给用户一个明确反馈（重复点击「认领」时要能看到「已认领」这句话）
     if (task.status === 'doing') {
+      toast('该任务已认领（进行中），无需重复操作')
       return {
         ok: true,
         data: { taskId, status: 'doing', projectRevision: project.projectRevision },
@@ -598,39 +602,69 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     return { ok: true, data: { taskId, status: 'doing', projectRevision: project.projectRevision } }
   }
 
-  /** 旧页面兼容 wrapper：把步骤下标翻译成 taskId，业务逻辑只在 claimTask 里 */
-  function claimStep(stepIndex: number): ActionResult<ClaimTaskResult> {
+  /**
+   * 旧页面兼容 wrapper：把步骤转成 taskId，业务逻辑只在 claimTask 里。
+   * 传 taskId（字符串）走稳定 ID；传下标（数字）只为旧调用兜底，页面不再使用。
+   */
+  function claimStep(target: number | string): ActionResult<ClaimTaskResult> {
     const project = current.value
     if (project === undefined) {
       return localFailure('NOT_FOUND', '还没有项目，无法认领任务')
     }
-    const task: Task | undefined = (project.tasks ?? [])[stepIndex]
+
+    const task: Task | undefined =
+      typeof target === 'string'
+        ? (project.tasks ?? []).find((item) => item.id === target)
+        : (project.tasks ?? [])[target]
+
     if (task === undefined) {
       return localFailure('NOT_FOUND', '任务不存在')
     }
     return claimTask({ taskId: task.id })
   }
 
-  function askAboutStep(stepIndex: number) {
+  /**
+   * 就某条真实任务提问。
+   * 传 taskId（稳定 ID）或旧下标；回复来自本地固定文案，因此署名「本地提示」，
+   * 消息内容里也写明这是本地演示，不是后端 AI 输出。
+   */
+  function askAboutStep(target: number | string) {
     const project = current.value
     if (project === undefined) return
-    const step = project.steps[stepIndex]
-    if (step === undefined) return
+
+    const task: Task | undefined =
+      typeof target === 'string'
+        ? (project.tasks ?? []).find((item) => item.id === target)
+        : (project.tasks ?? [])[target]
+
+    if (task === undefined) {
+      toast('这条任务已经不在当前项目里，请重新获取建议')
+      return
+    }
+
+    const doneCriteria = normalizeNullable(task.doneCriteria)
+    const why = normalizeNullable(task.why)
+    const lead = why === null ? '这一步该怎么开始？' : `${why.slice(0, 40)}…该怎么开始？`
+
     project.chat.push({
       who: '我',
       me: true,
-      text: `关于步骤 ${stepIndex + 1}「${step.t}」，我想先了解：${step.why.slice(0, 40)}…该怎么开始？`,
+      text: `关于「${task.title}」，我想先了解：${lead}`,
     })
     project.chat.push({
-      who: 'AI 顾问',
+      who: LOCAL_REPLY_NAME,
       me: false,
-      text: `这一步的完成标志是「${step.done}」。建议先做其中的文献部分——用「论文推荐」页的提示词检索，把结论整理成一页笔记，那就是最初的证据。`,
+      text:
+        `这一步的完成标志是「${doneCriteria ?? '还没写完成标志'}」。` +
+        '建议先做其中的文献部分——用「论文推荐」页的提示词检索，把结论整理成一页笔记，那就是最初的证据。' +
+        '（本地演示回复：暂未接入后端 AI，这条提示来自固定文案。）',
     })
+
     if (!persistOrRollback(() => project.chat.splice(-2, 2))) {
       toast('本地存储不可用，提问没有保存')
       return
     }
-    toast('已就该步骤向 AI 提问')
+    toast('已记录提问，并给出一条本地提示')
   }
 
   /* -------------------------------------------------------- 解决疑问 */
@@ -689,6 +723,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   /* ---------------------------------------------------------------- 问答 */
 
+  /**
+   * 答疑演示（本地）：提问会存进**当前项目**的 `project.chat`，
+   * 回复取自本地固定文案池并署名「本地提示」。
+   *
+   * 后端目前没有聊天接口，所以这里刻意不做成"看起来像真 AI"的样子；
+   * 等 `POST /api/advisor/chat` 就绪后，只需把这一段换成 API 调用（接口见最终报告）。
+   */
   function sendChat(text: string) {
     const project = current.value
     if (project === undefined || text.trim() === '') return
@@ -698,10 +739,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       toast('本地存储不可用，消息没有保存')
       return
     }
-    const reply = AI_REPLIES[replyIdx % AI_REPLIES.length]
+    const reply = LOCAL_REPLIES[replyIdx % LOCAL_REPLIES.length]
     replyIdx += 1
     window.setTimeout(() => {
-      project.chat.push({ who: 'AI 顾问', me: false, text: reply })
+      // 闭包捕获的是提问时的项目：中途切换项目也不会把回复写到别的项目里
+      project.chat.push({ who: LOCAL_REPLY_NAME, me: false, text: reply })
       // 回复是展示内容：写盘失败只撤销这一条，不影响已经发出的提问
       persistOrRollback(() => project.chat.pop())
     }, 600)

@@ -58,6 +58,64 @@ function makeRecommendation(index: number, source: Recommendation['source'] = 'l
   }
 }
 
+/** 建议接口替身：按请求体的 projectId / revision / requestId 现造一条建议 */
+function stubAdvisor(
+  build: (request: { projectId: string; projectRevision: number; requestId: string }) => Response,
+): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body ?? '{}')) as {
+        projectId?: unknown
+        projectRevision?: unknown
+        requestId?: unknown
+      }
+      if (
+        typeof request.projectId !== 'string' ||
+        typeof request.projectRevision !== 'number' ||
+        typeof request.requestId !== 'string'
+      ) {
+        throw new Error('测试请求字段不完整')
+      }
+      return build({
+        projectId: request.projectId,
+        projectRevision: request.projectRevision,
+        requestId: request.requestId,
+      })
+    }),
+  )
+}
+
+/**
+ * 直接放一条真实任务进当前项目。
+ * 公开 action 只能创建 doing 任务（认领即进行中），所以等待认领的 todo 任务只在测试里这样造。
+ */
+function seedTask(
+  store: WorkbenchStore,
+  status: Task['status'] = 'todo',
+  title = '等待认领的步骤',
+): Task {
+  const project = store.current
+  if (project === undefined) throw new Error('缺少测试项目')
+  const timestamp = new Date().toISOString()
+  const task: Task = {
+    id: `tsk_seed_${project.tasks.length + 1}`,
+    projectId: project.projectId,
+    title,
+    status,
+    doneCriteria: '写出一页结论',
+    owner: null,
+    suggestedOwner: null,
+    milestone: null,
+    why: null,
+    draftKey: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }
+  project.tasks = [...project.tasks, task]
+  return task
+}
+
 function makeTask(status: Task['status'] = 'doing'): Task {
   return {
     id: 'tsk_ui_1',
@@ -180,7 +238,7 @@ describe('AI UI components', () => {
     expect(wrapper.text()).not.toContain('dbt_1')
   })
 
-  it('keeps a draft recommendation claimable with the contract label', async () => {
+  it('keeps an unclaimed recommendation clickable with the 认领这一步 label', async () => {
     const wrapper = mount(SuggestionCard, {
       props: {
         suggestion: makeRecommendation(1),
@@ -193,9 +251,27 @@ describe('AI UI components', () => {
 
     const button = wrapper.get('button')
     expect(button.attributes('disabled')).toBeUndefined()
-    expect(button.text()).toContain('就按这个做')
+    expect(button.text()).toContain('认领这一步')
     await button.trigger('click')
     expect(wrapper.emitted('claim')).toHaveLength(1)
+  })
+
+  it('shows 已认领 · 进行中 and disables the button once claimed', async () => {
+    const wrapper = mount(SuggestionCard, {
+      props: {
+        suggestion: makeRecommendation(2),
+        index: 0,
+        claimState: 'claimed',
+        evidence: [],
+        doubts: [],
+      },
+    })
+
+    const button = wrapper.get('button')
+    expect(button.text()).toContain('已认领')
+    expect(button.text()).toContain('进行中')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('AI 项目顾问')
   })
 })
 
@@ -334,47 +410,232 @@ describe('WorkbenchView', () => {
     expect(store.current?.tasks.some((task) => task.title === '创建一个新任务' && task.status === 'doing')).toBe(true)
   })
 
-  it('clears claimed recommendation ids when switching projects', async () => {
+  it('derives claim state from the real task of each project（切换项目不串状态）', async () => {
     const store = freshStore()
-    const first = createProjectWithTask(store, '项目一')
+    // 项目一：任务仍是 todo（还没认领）；项目二：任务已经 doing（已认领）
+    const firstProjectId = createProject(store, '项目一')
+    const firstTask = seedTask(store, 'todo')
     const second = createProjectWithTask(store, '项目二')
-    const firstProjectId = first.projectId
-    const secondProjectId = second.projectId
-    const firstTaskId = first.taskId
-    const secondTaskId = second.taskId
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        const request = JSON.parse(String(init?.body ?? '{}')) as {
-          projectId?: unknown
-          projectRevision?: unknown
-          requestId?: unknown
-        }
-        if (
-          typeof request.projectId !== 'string' ||
-          typeof request.projectRevision !== 'number' ||
-          typeof request.requestId !== 'string'
-        ) {
-          throw new Error('测试请求字段不完整')
-        }
-        const taskId = request.projectId === secondProjectId ? secondTaskId : firstTaskId
-        return advisorResponse(request.projectId, request.projectRevision, taskId, '切换项目后的建议', request.requestId)
-      }),
+
+    stubAdvisor(({ projectId, projectRevision, requestId }) =>
+      advisorResponse(
+        projectId,
+        projectRevision,
+        projectId === second.projectId ? second.taskId : firstTask.id,
+        '切换项目后的建议',
+        requestId,
+      ),
+    )
+    const wrapper = mount(WorkbenchView)
+
+    // 当前是项目二：任务已 doing → 建议直接显示已认领
+    await wrapper.get('button.ai-status-action').trigger('click')
+    await flushPromises()
+    const secondClaimButton = wrapper.get('.recommendation-list .sc-actions button')
+    expect(secondClaimButton.text()).toContain('已认领')
+    expect(secondClaimButton.attributes('disabled')).toBeDefined()
+
+    // 切到项目一：任务还没认领 → 按钮恢复可点击（状态来自该项目自己的任务）
+    await wrapper.find('select.proj-select').setValue(firstProjectId)
+    await wrapper.get('button.ai-status-action').trigger('click')
+    await flushPromises()
+    const firstClaimButton = wrapper.get('.recommendation-list .sc-actions button')
+    expect(firstClaimButton.text()).toContain('认领这一步')
+    expect(firstClaimButton.attributes('disabled')).toBeUndefined()
+
+    // 在项目一认领，再切回项目二：两个项目的状态互不影响
+    await firstClaimButton.trigger('click')
+    expect(store.projects.find((item) => item.projectId === firstProjectId)?.tasks[0]?.status).toBe('doing')
+
+    await wrapper.find('select.proj-select').setValue(second.projectId)
+    await wrapper.get('button.ai-status-action').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.recommendation-list .sc-actions button').text()).toContain('已认领')
+  })
+
+  it('shows 已认领 · 进行中 and disables the claim button right after claiming', async () => {
+    const store = freshStore()
+    const projectId = createProject(store)
+    const task = seedTask(store, 'todo')
+    stubAdvisor(({ projectRevision, requestId }) =>
+      advisorResponse(projectId, projectRevision, task.id, '把目标写清楚', requestId),
     )
     const wrapper = mount(WorkbenchView)
 
     await wrapper.get('button.ai-status-action').trigger('click')
     await flushPromises()
-    const secondClaimButton = wrapper.get('.recommendation-list .sc-actions button')
-    await secondClaimButton.trigger('click')
-    expect(secondClaimButton.attributes('disabled')).toBeDefined()
 
-    await wrapper.find('select.proj-select').setValue(firstProjectId)
+    const button = wrapper.get('.recommendation-list .sc-actions button')
+    expect(button.text()).toContain('认领这一步')
+    await button.trigger('click')
+
+    const claimed = wrapper.get('.recommendation-list .sc-actions button')
+    expect(claimed.text()).toContain('已认领')
+    expect(claimed.text()).toContain('进行中')
+    expect(claimed.attributes('disabled')).toBeDefined()
+    expect(store.current?.tasks.find((item) => item.id === task.id)?.status).toBe('doing')
+
+    // 顾问区：同一个任务只出现一次，且直接显示真实状态「进行中」，按钮不再可点
+    const advisorCard = wrapper.get('.advisor-steps .step-card')
+    expect(advisorCard.text()).toContain('等待认领的步骤')
+    expect(advisorCard.text()).toContain('进行中')
+    expect(advisorCard.get('button').attributes('disabled')).toBeDefined()
+  })
+
+  it('keeps the claim state after re-fetching suggestions（建议重新生成也不回退）', async () => {
+    const store = freshStore()
+    const projectId = createProject(store)
+    const task = seedTask(store, 'todo', '把目标写清楚')
+    let round = 0
+    stubAdvisor(({ projectRevision, requestId }) => {
+      round += 1
+      // 第二轮模拟 AI 重新生成：给出同标题的候选建议（existingTaskId 为空、requestId 是新的）
+      return advisorResponse(
+        projectId,
+        projectRevision,
+        round === 1 ? task.id : null,
+        '把目标写清楚',
+        requestId,
+      )
+    })
+    const wrapper = mount(WorkbenchView)
+
+    await wrapper.get('button.ai-status-action').trigger('click')
+    await flushPromises()
+    await wrapper.get('.recommendation-list .sc-actions button').trigger('click')
+    expect(store.current?.tasks.find((item) => item.id === task.id)?.status).toBe('doing')
+
+    // 重新获取建议：建议是新的一批（id / requestId 都变了），但任务已经在项目里
     await wrapper.get('button.ai-status-action').trigger('click')
     await flushPromises()
 
-    const firstClaimButton = wrapper.get('.recommendation-list .sc-actions button')
-    expect(firstClaimButton.attributes('disabled')).toBeUndefined()
+    const button = wrapper.get('.recommendation-list .sc-actions button')
+    expect(button.text()).toContain('已认领')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(store.current?.tasks).toHaveLength(1)
+  })
+
+  it('keeps repeated claims idempotent（不重复建任务、不递增 revision）', async () => {
+    const store = freshStore()
+    const projectId = createProject(store)
+    const task = seedTask(store, 'todo')
+    stubAdvisor(({ projectRevision, requestId }) =>
+      advisorResponse(projectId, projectRevision, task.id, '把目标写清楚', requestId),
+    )
+    const wrapper = mount(WorkbenchView)
+
+    await wrapper.get('button.ai-status-action').trigger('click')
+    await flushPromises()
+    const button = wrapper.get('.recommendation-list .sc-actions button')
+    await button.trigger('click')
+
+    const taskCount = store.current?.tasks.length
+    const revision = store.current?.projectRevision
+
+    // 按钮虽然已经禁用，仍然再点两次：不得新建任务、不得递增 revision
+    await button.trigger('click')
+    await button.trigger('click')
+
+    expect(store.current?.tasks).toHaveLength(taskCount ?? 0)
+    expect(store.current?.projectRevision).toBe(revision)
+    expect(store.toastText).toContain('已认领')
+  })
+
+  it('keeps the claimed state after a reload（刷新后不再是「认领这一步」）', async () => {
+    const store = freshStore()
+    const projectId = createProject(store)
+    const task = seedTask(store, 'todo')
+    stubAdvisor(({ projectRevision, requestId }) =>
+      advisorResponse(projectId, projectRevision, task.id, '把目标写清楚', requestId),
+    )
+    const wrapper = mount(WorkbenchView)
+    await wrapper.get('button.ai-status-action').trigger('click')
+    await flushPromises()
+    await wrapper.get('.recommendation-list .sc-actions button').trigger('click')
+    wrapper.unmount()
+
+    // 重新加载：新的 pinia / store，项目状态从 localStorage 恢复
+    const reloaded = freshStore()
+    expect(reloaded.current?.projectId).toBe(projectId)
+    expect(reloaded.current?.tasks.find((item) => item.id === task.id)?.status).toBe('doing')
+
+    const reloadedWrapper = mount(WorkbenchView)
+    await reloadedWrapper.get('button.ai-status-action').trigger('click')
+    await flushPromises()
+
+    const button = reloadedWrapper.get('.recommendation-list .sc-actions button')
+    expect(button.text()).toContain('已认领')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(reloadedWrapper.text()).not.toContain('认领这一步')
+  })
+
+  it('hides the blank-project hint after the first progress', async () => {
+    const store = freshStore()
+    createProject(store)
+    const wrapper = mount(WorkbenchView)
+
+    expect(wrapper.text()).toContain('这是一个空白项目')
+    expect(store.current?.banner).toContain('空白项目')
+
+    await wrapper.get('#evidence-did').setValue('读了 2 篇文献并整理了结论')
+    await wrapper.get('form.evidence-form').trigger('submit')
+    await flushPromises()
+
+    expect(store.current?.evidenceRecords).toHaveLength(1)
+    expect(store.current?.banner).not.toContain('空白项目')
+    expect(wrapper.text()).not.toContain('这是一个空白项目')
+  })
+
+  it('never shows the blank-project hint when the project already has tasks', () => {
+    const store = freshStore()
+    createProjectWithTask(store, '已有任务的项目')
+    const wrapper = mount(WorkbenchView)
+
+    expect(store.current?.banner).toContain('进行中')
+    expect(store.current?.banner).not.toContain('空白项目')
+    expect(wrapper.text()).not.toContain('这是一个空白项目')
+  })
+
+  it('hides the blank-project hint after uploading a material', async () => {
+    const store = freshStore()
+    createProject(store)
+    const wrapper = mount(WorkbenchView)
+    expect(wrapper.text()).toContain('这是一个空白项目')
+
+    store.uploadMaterial('实验手册', '实验手册.pdf')
+    await wrapper.vm.$nextTick()
+
+    expect(store.current?.banner).not.toContain('空白项目')
+    expect(wrapper.text()).not.toContain('这是一个空白项目')
+  })
+
+  it('keeps chat history per project and signs replies as local tips', async () => {
+    // 聊天回复走 window.setTimeout：用假定时器把它推进完，避免残留定时器污染后续用例
+    vi.useFakeTimers()
+    try {
+      const store = freshStore()
+      const firstProjectId = createProject(store, '项目一')
+      const secondProjectId = createProject(store, '项目二')
+      const wrapper = mount(WorkbenchView)
+
+      store.sendChat('项目二的问题')
+      await vi.advanceTimersByTimeAsync(700)
+
+      const chat = store.current?.chat ?? []
+      expect(chat[0]?.text).toBe('项目二的问题')
+      // 回复署名是「本地提示」，不伪装成真实 AI
+      expect(chat[1]?.who).toBe('本地提示')
+      expect(chat[1]?.who).not.toBe('AI 顾问')
+
+      await wrapper.find('select.proj-select').setValue(firstProjectId)
+      expect(store.current?.chat).toHaveLength(0)
+
+      await wrapper.find('select.proj-select').setValue(secondProjectId)
+      expect(store.current?.chat).toHaveLength(2)
+      expect(store.current?.chat[1]?.who).toBe('本地提示')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('does not request suggestions for a completely blank project', async () => {

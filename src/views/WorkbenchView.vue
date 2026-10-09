@@ -8,8 +8,10 @@ import ProjectMindMap from '@/components/ProjectMindMap.vue'
 import RecommendationList from '@/components/RecommendationList.vue'
 import { CHINESE_NUM, WEEK_LABELS, useWorkbenchStore } from '@/stores/workbench'
 import { deriveDoubtSnapshots, deriveEvidenceSnapshots } from '@/domain/activity'
+import { findClaimedTaskFor, taskStatusText } from '@/domain/progress'
+import { BLANK_PROJECT_NOTE, summarizeProjectStatus } from '@/domain/projectStatus'
 import type { AdvisorFallbackReason, Recommendation, SubmitEvidenceInput } from '@/domain/recommendation'
-import type { Milestone } from '@/types/platform'
+import type { Milestone, SuggestedStep, TaskStatus } from '@/types/platform'
 
 /**
  * 工作台
@@ -92,19 +94,13 @@ const aiStatus = computed(() => store.aiStatus)
 const isRequesting = computed(() => store.aiStatus === 'loading')
 
 /**
- * 空白项目：创建后还没有任何任务、证据与疑问，也就是用户尚未输入任何项目内容。
- * 这类项目不该显示"伪造的建议依据"，而是提示先补材料或目标（见 createProject 的新语义）。
+ * 空白项目：没有任务、证据、疑问与材料时才是空白——判断只看**真实数据**，不看项目名称。
+ *
+ * 用户提交第一条进展、上传材料、提出疑问或认领任务之后，`isBlank` 立刻变成 false，
+ * 空白提示随之消失（同一份摘要也用于「AI 项目顾问」区的说明文字与刷新后的恢复）。
  */
-const isBlankProject = computed(() => {
-  const p = project.value
-  if (!p) return false
-  return (
-    (p.tasks?.length ?? 0) === 0 &&
-    (p.evidenceRecords?.length ?? 0) === 0 &&
-    (p.doubtRecords?.length ?? 0) === 0 &&
-    (p.materials?.length ?? 0) === 0
-  )
-})
+const projectStatus = computed(() => (project.value ? summarizeProjectStatus(project.value) : null))
+const isBlankProject = computed(() => projectStatus.value?.isBlank ?? false)
 
 /** 兜底/失败原因：优先用响应里的 fallbackReason，其次用适配层保留的错误码 */
 const reasonText = computed(() => {
@@ -123,7 +119,7 @@ const statusLine = computed(() => {
   switch (store.aiStatus) {
     case 'idle':
       return isBlankProject.value
-        ? '这是一个空白项目。先上传材料、填写项目目标或提交第一条进展，再点「获取建议」，AI 才有可分析的依据。'
+        ? `${BLANK_PROJECT_NOTE}先补上内容，再点「获取建议」。`
         : '还没有建议。点一下「获取建议」，AI 会结合项目当前状态、最近证据和未解决的疑问，给出 1～3 条下一步建议。'
     case 'loading':
       return '正在分析项目状态…'
@@ -209,22 +205,35 @@ const derived = computed(() => {
   }
 })
 
-/** 契约 5.4 第 4 条：同一条建议重复点击只认领一次 */
-const claimedIds = ref<string[]>([])
-
-watch(
-  () => project.value?.projectId,
-  () => {
-    claimedIds.value = []
-  },
-)
-
 type ClaimState = 'claimable' | 'claimed' | 'draft'
 
+/**
+ * 「是否已认领」只看**真实任务**（建议自带的 taskId / draft 幂等键），
+ * 不用数组下标，也不靠页面内存里的标记：
+ * 认领之后、刷新之后、重新获取建议之后，同一条建议都会稳定显示成「已认领」。
+ */
 function claimStateOf(suggestion: Recommendation): ClaimState {
-  if (claimedIds.value.includes(suggestion.id)) return 'claimed'
-  if (suggestion.existingTaskId === null) return 'draft'
-  return 'claimable'
+  const current = project.value
+  if (current !== undefined && findClaimedTaskFor(current, suggestion) !== null) return 'claimed'
+  return suggestion.existingTaskId === null ? 'draft' : 'claimable'
+}
+
+/** 顾问区步骤状态徽标配色 */
+const STEP_STATUS_STYLE: Record<TaskStatus, string> = {
+  todo: 'background:#f1efe8;color:#5f5e5a;border:1px solid #d3d1c7;',
+  doing: 'background:#E6F1FB;color:#185FA5;border:1px solid #B5D4F4;',
+  done: 'background:#E1F5EE;color:#0F6E56;border:1px solid #9FE1CB;',
+}
+
+function stepStatusStyle(status: TaskStatus | undefined): string {
+  return STEP_STATUS_STYLE[status ?? 'todo']
+}
+
+/** 顾问区按钮文案：未开始才可认领，进行中 / 已完成直接显示状态并禁用 */
+function stepClaimLabel(status: TaskStatus | undefined): string {
+  if (status === 'doing') return '进行中'
+  if (status === 'done') return '已完成'
+  return '认领这一步'
 }
 
 const suggestionViews = computed(() =>
@@ -250,12 +259,30 @@ const suggestionViews = computed(() =>
   }),
 )
 
-/** 认领已有任务，或把新任务候选保存为进行中的正式任务。 */
+/**
+ * 认领已有任务，或把新任务候选保存为进行中的正式任务。
+ *
+ * 重复点击直接返回（store 侧同样幂等）：不新建任务、不递增 projectRevision、不重复写盘。
+ * 认领成功后按钮状态由真实任务推导，页面不需要自己记 id。
+ */
 function claimSuggestion(suggestion: Recommendation) {
-  if (claimedIds.value.includes(suggestion.id)) return
+  const current = project.value
+  if (current === undefined) return
+
+  if (claimStateOf(suggestion) === 'claimed') {
+    store.toast('这条建议已经认领过了，任务在「AI 项目顾问」里（进行中）')
+    return
+  }
+
+  // 建议引用的任务必须真的在当前项目里；找不到（例如服务端引用了别的项目）就按新任务候选处理
+  const existingTaskId =
+    suggestion.existingTaskId !== null &&
+    (current.tasks ?? []).some((task) => task.id === suggestion.existingTaskId)
+      ? suggestion.existingTaskId
+      : null
 
   const result =
-    suggestion.existingTaskId === null
+    existingTaskId === null
       ? store.claimTask({
           draft: {
             title: suggestion.title,
@@ -265,24 +292,30 @@ function claimSuggestion(suggestion: Recommendation) {
             basisDoubtIds: suggestion.basisDoubtIds,
           },
         })
-      : store.claimTask({ taskId: suggestion.existingTaskId })
-  if (!result.ok) {
-    store.toast(result.message)
-    return
-  }
+      : store.claimTask({ taskId: existingTaskId })
 
-  claimedIds.value = [...claimedIds.value, suggestion.id]
+  if (!result.ok) store.toast(result.message)
 }
 
-function claimLegacyStep(stepIndex: number) {
-  const task = project.value?.tasks[stepIndex]
-  if (task === undefined) {
-    store.toast('这条任务已经不在当前项目里，请重新获取建议')
+/** 顾问区：按 taskId 认领（不用下标）；状态由真实任务驱动 */
+function claimStep(step: SuggestedStep) {
+  const taskId = step.taskId
+  if (taskId === undefined) {
+    store.toast('这条步骤没有对应的任务，请先获取建议')
     return
   }
-
-  const result = store.claimTask({ taskId: task.id })
+  const result = store.claimTask({ taskId })
   if (!result.ok) store.toast(result.message)
+}
+
+/** 顾问区：按 taskId 就这条任务提问（回复为本地演示文案） */
+function askStep(step: SuggestedStep) {
+  const taskId = step.taskId
+  if (taskId === undefined) {
+    store.toast('这条步骤没有对应的任务，请先获取建议')
+    return
+  }
+  store.askAboutStep(taskId)
 }
 
 /* -------------------------------------------------------------- 材料 */
@@ -507,8 +540,14 @@ const openDoubts = computed(() =>
         <div class="card" style="margin-bottom:14px;">
           <div class="card-h">
             AI 下一步建议
+            <span class="tag" style="background:#EEEDFE;color:#3C3489;border:1px solid #CECBF6;">
+              候选建议
+            </span>
           </div>
           <div class="card-b">
+            <div class="card-note">
+              这里是候选建议：认领之后才会变成项目里的任务，并出现在下方「AI 项目顾问」。
+            </div>
             <AiStatus
               :tone="statusTone"
               :tag="statusTag"
@@ -539,32 +578,47 @@ const openDoubts = computed(() =>
         <div class="card" style="margin-bottom:14px;">
           <div class="card-h">
             AI 项目顾问
-            <span class="tag" style="background:#EEEDFE;color:#3C3489;border:1px solid #CECBF6;">
-              基于项目状态与上传材料
+            <span class="tag" style="background:#E6F1FB;color:#185FA5;border:1px solid #B5D4F4;">
+              项目真实任务
             </span>
           </div>
           <div class="card-b">
+            <div class="card-note">
+              这里只显示已经进入项目的任务与状态（未开始 / 进行中 / 已完成）；
+              候选建议请在「AI 下一步建议」里认领。
+            </div>
             <div class="ai-banner">{{ project.banner }}</div>
 
             <div v-if="!project.steps.length" class="empty">
-              当前还没有项目步骤。
+              还没有任务。先在上方「AI 下一步建议」里认领一步，任务会出现在这里并显示进度。
             </div>
 
-            <div v-for="(step, index) in project.steps" :key="step.t" class="step-card">
-              <div class="sc-top">
-                <div class="sc-no">{{ index + 1 }}</div>
-                <div class="sc-title">{{ step.t }}</div>
-                <span
-                  class="tag sc-owner"
-                  style="background:#E6F1FB;color:#185FA5;border:1px solid #B5D4F4;"
-                >建议：{{ step.owner }}</span>
-              </div>
-              <div class="sc-why"><b>为什么现在做：</b>{{ step.why }}</div>
-              <div class="sc-done">{{ step.done }}</div>
-              <div class="sc-actions">
-                <button class="btn primary" @click="claimLegacyStep(index)">认领这一步</button>
-                <button class="btn" @click="store.askAboutStep(index)">就此提问</button>
-                <button class="btn" @click="router.push('/papers')">相关论文</button>
+            <div class="advisor-steps">
+              <div
+                v-for="(step, index) in project.steps"
+                :key="step.taskId ?? `${step.t}-${index}`"
+                class="step-card"
+              >
+                <div class="sc-top">
+                  <div class="sc-no">{{ index + 1 }}</div>
+                  <div class="sc-title">{{ step.t }}</div>
+                  <span class="tag sc-owner" :style="stepStatusStyle(step.status)">
+                    {{ taskStatusText(step.status) }}
+                  </span>
+                </div>
+                <div v-if="step.why" class="sc-why"><b>为什么现在做：</b>{{ step.why }}</div>
+                <div v-if="step.done" class="sc-done">完成标志：{{ step.done }}</div>
+                <div class="sc-actions">
+                  <button
+                    class="btn primary"
+                    :disabled="step.status !== 'todo'"
+                    @click="claimStep(step)"
+                  >
+                    {{ stepClaimLabel(step.status) }}
+                  </button>
+                  <button class="btn" @click="askStep(step)">就此提问</button>
+                  <button class="btn" @click="router.push('/papers')">相关论文</button>
+                </div>
               </div>
             </div>
           </div>
@@ -596,13 +650,17 @@ const openDoubts = computed(() =>
           <div class="card-h">
             向顾问提问
             <span class="tag" style="background:#f1efe8;color:#5f5e5a;border:1px solid #d3d1c7;">
-              答疑模式 · 给提示不给答案
+              答疑演示 · 本地提示
             </span>
           </div>
           <div class="card-b">
+            <div class="chat-notice">
+              当前回复来自本地固定文案，不是后端 AI 生成；对话按项目保存在本地。
+              接入后端聊天接口后会替换为真实回答。
+            </div>
             <div ref="chatLog" class="chat-log">
               <div v-if="!project.chat.length" class="empty" style="padding:4px 0;">
-                还没有对话。把你卡住的地方或想确认的事写下来，AI 会结合当前项目状态回答。
+                还没有对话。把你卡住的地方写下来，会先得到一条本地提示。
               </div>
               <div v-for="(msg, i) in project.chat" :key="i" class="msg" :class="{ me: msg.me }">
                 <div>
@@ -614,7 +672,7 @@ const openDoubts = computed(() =>
             <div class="chat-input">
               <input
                 v-model="chat"
-                placeholder="描述你卡住的问题，AI 会结合项目状态回答…"
+                placeholder="描述你卡住的问题（当前为本地演示回复）…"
                 @keydown.enter="send"
               />
               <button class="btn primary" @click="send">发送</button>
@@ -663,6 +721,24 @@ const openDoubts = computed(() =>
 </template>
 
 <style scoped>
+.card-note {
+  font-size: 11.5px;
+  color: #888780;
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+
+.chat-notice {
+  border: 1px solid #d3d1c7;
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  background: #f8f7f4;
+  color: #5f5e5a;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
 .evidence-save-status {
   border: 1px solid #9FE1CB;
   border-radius: 10px;
