@@ -25,7 +25,7 @@ export interface SuggestedStep {
   owner: string
   /** 为什么现在做 */
   why: string
-  /** 完成标志 */
+  /** 完成标准 */
   done: string
   /**
    * 该步骤对应的真实任务 ID。

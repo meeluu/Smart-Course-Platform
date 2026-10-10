@@ -10,9 +10,11 @@ import type { Recommendation, RecommendationSource } from '@/domain/recommendati
  * 展开后显示的是可读内容，不是 ID。
  *
  * 任务按钮的三种状态（契约 5.4）：
- *   claimable          认领已有任务，或通过 draft 创建并认领新任务
- *   claimed            这条建议已经认领过 → 「已认领」
- *   draft              existingTaskId 为空 → 「就按这个做」
+ *   claimable          认领已有任务 → 「认领这一步」
+ *   claimed            这条建议已经认领过 → 「已认领 · 进行中」并禁用
+ *   draft              existingTaskId 为空，认领后创建新任务 → 同样显示「认领这一步」
+ *
+ * 用户可见文案一律说人话：不出现 doneCriteria / existingTaskId 这类字段名。
  */
 
 const props = defineProps<{

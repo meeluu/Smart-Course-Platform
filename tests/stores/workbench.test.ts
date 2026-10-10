@@ -1652,14 +1652,48 @@ describe('向顾问提问：真实聊天接口', () => {
     expect(currentProject(store).chat[1]?.fallbackReason).toBe('MODEL_TIMEOUT')
   })
 
-  it('网络失败显示明确错误且不泄露请求内容', async () => {
+  it('网络失败显示明确的中文提示，且不泄露请求内容与内部字段名', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network failure') }))
     const store = freshStore()
     createBlankProjectOrThrow(store)
     await store.sendChat('网络失败测试问题')
     expect(currentProject(store).chat).toHaveLength(1)
-    expect(store.chatError).toContain('无法连接后端')
+    expect(store.chatError).toContain('连不上后端服务')
     expect(store.chatError).not.toContain('network failure')
+    // 内部字段名与错误码都不能出现在用户看到的提示里
+    for (const token of ['projectRevision', 'doneCriteria', 'currentMilestone', 'NETWORK_ERROR', 'requestId']) {
+      expect(store.chatError).not.toContain(token)
+    }
+  })
+
+  it('服务端返回的原始报文（含字段名）不会直接展示给用户', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            contractVersion: '1.0',
+            requestId: 'req-x',
+            code: 'INVALID_INPUT',
+            message: '请求内容不合法：projectRevision 必须是整数',
+            retryable: false,
+            retryAfterSeconds: null,
+          }),
+          { status: 400, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    )
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+
+    await store.sendChat('这句提问本身是合法的')
+
+    expect(store.chatError).not.toBeNull()
+    expect(store.chatError).not.toContain('projectRevision')
+    expect(store.chatError).not.toContain('INVALID_INPUT')
+    expect(store.chatError).not.toContain('请求内容不合法')
+    // 换成一句用户能看懂的话
+    expect(store.chatError).toContain('项目')
   })
 
   it('超过问题长度上限不发送请求', async () => {

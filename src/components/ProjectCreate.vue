@@ -91,7 +91,7 @@ function submit() {
         <input ref="dataInput" type="file" style="display:none" @change="pick($event, 'data')" />
 
         <div class="ai-note">
-          AI 提示：实验手册里的任务要求会被解析为里程碑和完成标志；数据集信息会用于追踪「数据获取与预处理」阶段的进度。也可以先创建，之后在工作台随时补传。
+          AI 提示：实验手册里的任务要求会被解析为里程碑和完成标准；数据集信息会用于追踪「数据获取与预处理」阶段的进度。也可以先创建，之后在工作台随时补传。
         </div>
 
         <button class="create-btn" @click="submit">创建项目，让 AI 开始追踪</button>

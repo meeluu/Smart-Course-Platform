@@ -9,9 +9,15 @@ import type { Recommendation } from '@/domain/recommendation'
 import { useWorkbenchStore } from '@/stores/workbench'
 import type { Task } from '@/types/platform'
 import WorkbenchView from '@/views/WorkbenchView.vue'
+// 只从 visibleText 取工具：本文件把 vue-router 整个替换成了替身，
+// 不能引入会加载真实 router 的 ./support
+import { expectNoInternalTokens, visibleTextOf } from './visibleText'
+
+/** 共享的 push 替身：用例里可以断言"点了入口之后跳到哪一页" */
+const routerMock = vi.hoisted(() => ({ push: vi.fn() }))
 
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => routerMock,
 }))
 
 type WorkbenchStore = ReturnType<typeof useWorkbenchStore>
@@ -701,5 +707,45 @@ describe('WorkbenchView', () => {
     expect((wrapper.get('#evidence-task').element as HTMLSelectElement).value).toBe('')
     expect(store.current?.projectId).toBe(firstProjectId)
     expect(store.current?.projectId).not.toBe(secondProjectId)
+  })
+
+  it('不再内嵌完整项目地图，只保留进入地图页的入口', async () => {
+    const store = freshStore()
+    createProjectWithTask(store, '带任务的项目')
+    const wrapper = mount(WorkbenchView)
+
+    // 地图本身（SVG）只在地图页渲染，工作台不再重复画一遍
+    expect(wrapper.find('svg').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('左侧为里程碑，右侧为任务')
+
+    routerMock.push.mockClear()
+    const entry = wrapper.findAll('button').find((button) => button.text().includes('查看项目地图'))
+    expect(entry).toBeDefined()
+    await entry?.trigger('click')
+    expect(routerMock.push).toHaveBeenCalledWith('/map')
+  })
+
+  it('用户可见文本（含失败提示、规则参考与聊天区）不出现内部字段名', async () => {
+    // 这一条用 describe 里默认的 fetch 替身：建议请求失败走规则参考、聊天请求也失败
+    const store = freshStore()
+    createProjectWithTask(store, '可读性项目')
+    await store.sendChat('项目里还没有结论，我该先做什么？')
+
+    const wrapper = mount(WorkbenchView)
+    await wrapper.get('button.ai-status-action').trigger('click')
+    await flushPromises()
+
+    const text = visibleTextOf(wrapper)
+    expectNoInternalTokens(text)
+
+    // 该出现的中文说法
+    expect(text).toContain('AI 下一步建议')
+    expect(text).toContain('为什么现在做')
+    expect(text).toContain('完成标准')
+    expect(text).toContain('参考建议')
+    expect(text).toContain('AI 会结合当前项目的任务、证据、疑问和历史对话回答')
+    // 失败时也不能把错误码端上来
+    expect(text).not.toContain('INVALID_INPUT')
+    expect(text).not.toContain('NETWORK_ERROR')
   })
 })
