@@ -27,6 +27,14 @@ export interface SuggestedStep {
   why: string
   /** 完成标志 */
   done: string
+  /**
+   * 该步骤对应的真实任务 ID。
+   * 由 `deriveStepViews` 从 `Project.tasks` 投影出来，页面据此认领 / 提问，**不用数组下标**。
+   * 题目模板里的示例步骤没有真实任务，因此是可选的。
+   */
+  taskId?: string
+  /** 该步骤对应任务的真实状态，页面据此显示「进行中 / 未开始 / 已完成」 */
+  status?: TaskStatus
 }
 
 /* ------------------------------------------------------------------ 结构化状态模型 */

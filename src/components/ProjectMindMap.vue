@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { Project } from '@/types/platform'
 import { CHINESE_NUM } from '@/stores/workbench'
+import { taskStatusText } from '@/domain/progress'
 
 /**
  * 项目地图
@@ -63,15 +64,19 @@ const svg = computed(() => {
       `<text x="${msX + msW / 2}" y="${msYs[i] + 40}" text-anchor="middle" font-size="10.5" fill="${c.s}">${c.label}${m.s === 'cur' ? ` ${m.p}%` : ''}</text>`
   })
 
-  // 右侧当前步骤
+  // 右侧当前步骤：显示真实任务状态（进行中 / 已完成 / 未开始），不再只说「建议：待定」
   for (let j = 0; j < n; j += 1) {
     const yy = startY + j * (stH + gap)
     const raw = p.steps[j].t
     const title = raw.length > 13 ? `${raw.slice(0, 13)}…` : raw
+    const status = p.steps[j].status
+    const sub = status === undefined
+      ? `建议：${esc(p.steps[j].owner)} · AI 追踪中`
+      : `${taskStatusText(status)} · AI 追踪中`
     out +=
       `<rect x="560" y="${yy}" width="180" height="${stH}" rx="10" fill="#EEEDFE" stroke="#AFA9EC" stroke-width="1"/>` +
       `<text x="650" y="${yy + 24}" text-anchor="middle" font-size="12" font-weight="600" fill="#3C3489">步骤${j + 1} ${esc(title)}</text>` +
-      `<text x="650" y="${yy + 41}" text-anchor="middle" font-size="10.5" fill="#534AB7">建议：${esc(p.steps[j].owner)} · AI 追踪中</text>`
+      `<text x="650" y="${yy + 41}" text-anchor="middle" font-size="10.5" fill="#534AB7">${sub}</text>`
   }
 
   out += `<text x="${msX + msW / 2}" y="14" text-anchor="middle" font-size="11.5" font-weight="600" fill="#888780">里程碑</text>`

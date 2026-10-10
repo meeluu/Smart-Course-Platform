@@ -13,10 +13,15 @@ import {
   deriveProjectId,
   deriveStepViews,
   deriveTaskSnapshots,
+  draftKeyOf,
+  findClaimedTaskFor,
   isValidIso,
   syncMilestones,
+  taskStatusText,
   tasksOf,
 } from '@/domain/progress'
+import type { ClaimCandidate } from '@/domain/progress'
+import type { Task } from '@/types/platform'
 import { FIXED_ISO, makeMilestone, makeProject, makeTask } from './fixtures'
 
 const REFERENCE = new Date('2026-09-26T08:30:00.000Z')
@@ -296,12 +301,16 @@ describe('deriveStepViews：旧页面只读投影', () => {
     expect(steps[1]?.owner).toBe('待定')
   })
 
-  it('title / why / doneCriteria 正确投影，缺失字段回退为空串', () => {
+  it('title / why / doneCriteria 正确投影，缺失字段回退为空串，并带出 taskId 与真实状态', () => {
     const project = makeProject({
-      tasks: [makeTask({ title: 'T', why: null, doneCriteria: null })],
+      tasks: [
+        makeTask({ id: 'tsk_step', title: 'T', why: null, doneCriteria: null, status: 'doing' }),
+      ],
     })
 
-    expect(deriveStepViews(project)).toEqual([{ t: 'T', owner: '成员A', why: '', done: '' }])
+    expect(deriveStepViews(project)).toEqual([
+      { t: 'T', owner: '成员A', why: '', done: '', taskId: 'tsk_step', status: 'doing' },
+    ])
   })
 
   it('顺序与 tasks 一致，新增任务追加在末尾', () => {
@@ -310,5 +319,107 @@ describe('deriveStepViews：旧页面只读投影', () => {
     })
 
     expect(deriveStepViews(project).map((step) => step.t)).toEqual(['一', '二'])
+  })
+})
+
+describe('taskStatusText：状态文案', () => {
+  it('三态各自对应人话，未知状态按未开始处理', () => {
+    expect(taskStatusText('todo')).toBe('未开始')
+    expect(taskStatusText('doing')).toBe('进行中')
+    expect(taskStatusText('done')).toBe('已完成')
+    expect(taskStatusText(undefined)).toBe('未开始')
+  })
+})
+
+describe('findClaimedTaskFor：认领状态只按真实任务判断（不看下标）', () => {
+  const draft = {
+    title: '写清项目目标与预期产出',
+    doneCriteria: '一页目标说明',
+    requestId: 'req_1',
+    basisEvidenceIds: ['evd_1'],
+    basisDoubtIds: [],
+  }
+
+  /** 由建议认领创建的任务：带 draft 幂等键，状态 doing */
+  function claimedTask(overrides: Partial<Task> = {}): Task {
+    return makeTask({
+      id: 'tsk_claimed',
+      title: draft.title,
+      doneCriteria: draft.doneCriteria,
+      status: 'doing',
+      draftKey: draftKeyOf(draft),
+      ...overrides,
+    })
+  }
+
+  /** 站点建议：与 draft 同形（existingTaskId 默认为空，即新任务候选） */
+  function suggestion(overrides: Partial<ClaimCandidate> = {}): ClaimCandidate {
+    return {
+      existingTaskId: null,
+      title: draft.title,
+      doneCriteria: draft.doneCriteria,
+      requestId: draft.requestId,
+      basisEvidenceIds: [...draft.basisEvidenceIds],
+      basisDoubtIds: [...draft.basisDoubtIds],
+      ...overrides,
+    }
+  }
+
+  it('existingTaskId 指向进行中的任务时判为已认领', () => {
+    const task = makeTask({ id: 'tsk_doing', status: 'doing' })
+    const project = makeProject({ tasks: [task] })
+
+    expect(findClaimedTaskFor(project, suggestion({ existingTaskId: 'tsk_doing' }))?.id).toBe('tsk_doing')
+  })
+
+  it('existingTaskId 指向还没认领（todo）的任务时不算已认领', () => {
+    const project = makeProject({ tasks: [makeTask({ id: 'tsk_todo', status: 'todo' })] })
+
+    expect(findClaimedTaskFor(project, suggestion({ existingTaskId: 'tsk_todo' }))).toBeNull()
+  })
+
+  it('新任务候选按 draft 幂等键命中已认领任务', () => {
+    const project = makeProject({ tasks: [claimedTask()] })
+
+    expect(findClaimedTaskFor(project, suggestion())?.id).toBe('tsk_claimed')
+  })
+
+  it('建议重新生成导致 requestId 变化时，仍按标题兜底判为已认领（不重复建任务）', () => {
+    const project = makeProject({ tasks: [claimedTask()] })
+
+    const regenerated = suggestion({ requestId: 'req_2', basisEvidenceIds: [] })
+    expect(draftKeyOf({ ...regenerated, doneCriteria: regenerated.doneCriteria ?? '' })).not.toBe(
+      draftKeyOf(draft),
+    )
+    expect(findClaimedTaskFor(project, regenerated)?.id).toBe('tsk_claimed')
+  })
+
+  it('同标题且已进入项目的任务算已认领（AI 返回同标题候选时不再重复建任务）', () => {
+    const project = makeProject({
+      tasks: [makeTask({ id: 'tsk_same_title', title: draft.title, status: 'doing', draftKey: null })],
+    })
+
+    expect(findClaimedTaskFor(project, suggestion())?.id).toBe('tsk_same_title')
+  })
+
+  it('同标题但还没认领（todo）的任务不算已认领', () => {
+    const project = makeProject({
+      tasks: [makeTask({ id: 'tsk_todo_same', title: draft.title, status: 'todo', draftKey: null })],
+    })
+
+    expect(findClaimedTaskFor(project, suggestion())).toBeNull()
+  })
+
+  it('没有任何匹配时返回 null；任务顺序变化不影响判断', () => {
+    const project = makeProject({
+      tasks: [
+        makeTask({ id: 'tsk_a', title: '其它任务', status: 'doing', draftKey: null }),
+        makeTask({ id: 'tsk_other', title: '另一条', status: 'todo', draftKey: null }),
+        claimedTask({ id: 'tsk_target' }),
+      ],
+    })
+
+    expect(findClaimedTaskFor(project, suggestion({ existingTaskId: 'tsk_missing' }))).toBeNull()
+    expect(findClaimedTaskFor(project, suggestion())?.id).toBe('tsk_target')
   })
 })

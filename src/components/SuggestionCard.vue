@@ -44,10 +44,14 @@ const SOURCE_STYLE: Record<RecommendationSource, string> = {
 const sourceLabel = computed(() => SOURCE_TEXT[props.suggestion.source])
 const sourceStyle = computed(() => SOURCE_STYLE[props.suggestion.source])
 
+/**
+ * 未认领的建议统一显示「认领这一步」（候选建议 → 进入项目是一件事），
+ * 认领之后按钮显示真实状态并禁用（是否已认领由页面按真实任务判断）。
+ */
 const CLAIM_LABEL = {
   claimable: '认领这一步',
-  claimed: '已认领',
-  draft: '就按这个做',
+  claimed: '已认领 · 进行中',
+  draft: '认领这一步',
 } as const
 
 const claimLabel = computed(() => CLAIM_LABEL[props.claimState])
@@ -98,10 +102,13 @@ const basisCount = computed(() => props.evidence.length + props.doubts.length)
       </button>
 
       <span v-if="claimState === 'claimed'" class="hint">
-        已认领。做完这一步记得提交证据，建议会随项目状态更新。
+        已认领：任务已进入「AI 项目顾问」，状态为进行中。做完记得提交证据。
       </span>
       <span v-else-if="claimState === 'draft'" class="hint">
         点击后会把这条建议创建为当前项目的进行中任务。
+      </span>
+      <span v-else class="hint">
+        点击后把这条已有任务认领为进行中。
       </span>
     </div>
   </div>
