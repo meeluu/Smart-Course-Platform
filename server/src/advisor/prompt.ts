@@ -1,4 +1,4 @@
-import type { AdvisorRequest } from './types.js'
+import type { AdvisorChatRequest, AdvisorRequest } from './types.js'
 
 /**
  * 运行时提示词
@@ -110,5 +110,21 @@ export function buildMessages(request: AdvisorRequest): Array<{ role: 'system' |
   return [
     { role: 'system', content: ADVISOR_SYSTEM_PROMPT },
     { role: 'user', content: buildUserPrompt(request) },
+  ]
+}
+
+export function buildChatMessages(request: AdvisorChatRequest): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
+  const context = {
+    project: { projectId: request.projectId, name: cleanText(request.projectName, TEXT_LIMITS.projectName), revision: request.projectRevision, currentMilestone: cleanText(request.currentMilestone, TEXT_LIMITS.milestone) },
+    tasks: request.tasks.map((task) => ({ taskId: task.taskId, title: cleanText(task.title, TEXT_LIMITS.taskTitle), status: task.status, doneCriteria: cleanText(task.doneCriteria, TEXT_LIMITS.doneCriteria) })),
+    evidence: request.evidence.map((item) => ({ evidenceId: item.evidenceId, taskId: item.taskId, didWhat: cleanText(item.didWhat, TEXT_LIMITS.evidenceText), foundWhat: cleanText(item.foundWhat, TEXT_LIMITS.evidenceText), stillUnsure: cleanText(item.stillUnsure, TEXT_LIMITS.evidenceText) })),
+    doubts: request.doubts.map((item) => ({ doubtId: item.doubtId, text: cleanText(item.text, TEXT_LIMITS.doubtText), status: item.status })),
+  }
+  const system = '你是课程项目顾问。只能依据用户提供的项目状态、证据、疑问和聊天上下文回答；不得编造研究事实、数据、文献或结论。回答应帮助用户推进下一步，并明确哪些内容仍需证据验证。不要输出密钥、环境变量、服务器路径或上游错误。只返回纯文本答案。'
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: `当前项目状态（仅作事实依据）：${JSON.stringify(context)}` },
+    ...request.chatHistory.map((message) => ({ role: message.role, content: cleanText(message.text, 2000) ?? '' })),
+    { role: 'user', content: cleanText(request.question, 2000) ?? '' },
   ]
 }

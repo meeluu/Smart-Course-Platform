@@ -8,6 +8,7 @@ import { createOpenAiCompatibleProvider } from './advisor/openaiCompatibleProvid
 import { createAdvisorService, type AdvisorService } from './advisor/service.js'
 import { createConsoleLogger, type AdvisorLogger, type AdvisorProvider } from './advisor/types.js'
 import { createAdvisorHandler } from './routes/advisor.js'
+import { createAdvisorChatHandler } from './routes/advisorChat.js'
 import { handleHealth, sendJson } from './routes/health.js'
 import { handleAdvisorCors } from './routes/cors.js'
 
@@ -98,6 +99,7 @@ export function createApp(serverConfig: ServerConfig = config, deps: AppDependen
     })
 
   const handleAdvisor = createAdvisorHandler({ service: advisorService, logger })
+  const handleAdvisorChat = createAdvisorChatHandler({ service: advisorService, logger })
 
   return createServer((req, res) => {
     if (handleAdvisorCors(req, res)) return
@@ -109,7 +111,9 @@ export function createApp(serverConfig: ServerConfig = config, deps: AppDependen
     void handleAdvisor(req, res)
       .then((handled) => {
         if (handled) return
-        sendJson(res, 404, { status: 'error', message: '接口不存在' })
+        return handleAdvisorChat(req, res).then((chatHandled) => {
+          if (!chatHandled) sendJson(res, 404, { status: 'error', message: '接口不存在' })
+        })
       })
       .catch((error: unknown) => {
         logger.warn('请求处理出现未捕获异常', {

@@ -642,6 +642,41 @@ GET /health
 - 健康时返回 `200`；当前实现只报告进程健康，不探测模型依赖，因此不返回 `degraded` 或 `modelConfigured` 字段；
 - 该接口不得返回任何项目数据。
 
+### 6.4 `POST /api/advisor/chat`
+
+聊天接口接收当前项目快照和有限聊天上下文，调用服务端模型生成纯文本回答。请求必须使用
+`contractVersion: "1.0"`、`promptVersion: "advisor-chat-v1"`，并包含 `requestId`、`projectId`、正整数
+`projectRevision`、`projectName`、`currentMilestone`、`tasks`、`evidence`、`doubts`、`chatHistory` 和非空 `question`。
+`chatHistory` 最多 20 条，每条 `role` 只能为 `user` 或 `assistant`，文本最多 2000 字；问题最多 2000 字。
+任务、证据和疑问沿用 4.1 的数组上限，请求体最多 256 KB。
+
+```http
+POST /api/advisor/chat
+Content-Type: application/json
+```
+
+```json
+{
+  "contractVersion": "1.0",
+  "promptVersion": "advisor-chat-v1",
+  "requestId": "req_...",
+  "projectId": "prj_...",
+  "projectRevision": 1,
+  "projectName": "项目名称",
+  "currentMilestone": "首轮 MVP",
+  "tasks": [],
+  "evidence": [],
+  "doubts": [],
+  "chatHistory": [{"role": "user", "text": "上一轮问题"}],
+  "question": "我下一步应该做什么？"
+}
+```
+
+成功响应为 HTTP 200，`source` 为 `model` 或 `fallback`；模型成功时 `fallbackReason` 为 `null`，并返回非空 `answer`。
+模型不可用、超时或输出非法时，服务端返回安全的推进提示，`source: "fallback"`，并设置对应的
+`fallbackReason`（例如 `MODEL_TIMEOUT`），不返回 API Key、环境变量、服务器路径或上游响应原文。
+非法 JSON、缺字段、超限请求返回 400 `INVALID_INPUT`；GET 返回 405；允许的 CORS 预检返回 204，其他来源返回 403。
+
 ---
 
 ## 7. 部署现状与边界
@@ -709,7 +744,7 @@ GET /health
 | 字段 | 本轮 | 用途 |
 | --- | --- | --- |
 | `contractVersion` | `"1.0"` | 契约结构版本；不兼容变更时 +1，服务端对不支持的版本返回 400 |
-| `promptVersion` | `"mvp-prompt-v1"` | 提示词版本，由吴佳璐在 `docs/ai/prompt-spec.md` 维护；服务端支持列表必须以本契约为准同步更新 |
+| `promptVersion` | `"mvp-prompt-v1"`（建议）或 `"advisor-chat-v1"`（聊天） | 提示词版本，由吴佳璐在 `docs/ai/prompt-spec.md` 维护；服务端支持列表必须以本契约为准同步更新 |
 
 ### 8.2 预留键名（本轮不发送、不定义结构，服务端必须忽略）
 

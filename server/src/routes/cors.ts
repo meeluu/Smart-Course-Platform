@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { ADVISOR_RECOMMENDATIONS_PATH } from './advisor.js'
+import { ADVISOR_CHAT_PATH } from './advisorChat.js'
 import { sendJson } from './health.js'
 
 /** Browser origins allowed to call the advisor API. */
@@ -25,7 +26,7 @@ function isAllowedOrigin(origin: string | undefined): origin is (typeof ALLOWED_
 
 /** Handle CORS for the advisor endpoint before its normal route handler. */
 export function handleAdvisorCors(req: IncomingMessage, res: ServerResponse): boolean {
-  if (requestPath(req) !== ADVISOR_RECOMMENDATIONS_PATH) return false
+  if (requestPath(req) !== ADVISOR_RECOMMENDATIONS_PATH && requestPath(req) !== ADVISOR_CHAT_PATH) return false
 
   const origin = req.headers.origin
   if (origin !== undefined && !isAllowedOrigin(origin)) {

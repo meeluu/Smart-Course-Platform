@@ -1,7 +1,9 @@
 import {
   CONTRACT_VERSION,
   SUPPORTED_PROMPT_VERSIONS,
+  type AdvisorChatRequest,
   type AdvisorRequest,
+  type ChatMessage,
   type DoubtSnapshot,
   type DoubtStatus,
   type EvidenceSnapshot,
@@ -41,6 +43,10 @@ export const LIMITS = {
   suggestionWhyNowLength: 300,
   suggestionDoneCriteriaLength: 200,
   maxSuggestions: 3,
+  chatHistory: 20,
+  chatMessageLength: 2000,
+  questionLength: 2000,
+  answerLength: 4000,
 } as const
 
 const TASK_STATUSES: readonly TaskStatus[] = ['todo', 'doing', 'done']
@@ -321,7 +327,7 @@ export function extractRequestId(body: unknown): string | null {
 }
 
 /** 校验请求体。未知字段一律忽略（契约 8.4） */
-export function parseAdvisorRequest(body: unknown): ParseResult {
+export function parseAdvisorRequest(body: unknown, expectedPromptVersion = 'mvp-prompt-v1'): ParseResult {
   if (!isPlainObject(body)) {
     return { ok: false, requestId: null, issues: ['请求体必须是一个 JSON 对象'] }
   }
@@ -335,8 +341,8 @@ export function parseAdvisorRequest(body: unknown): ParseResult {
   }
 
   const promptVersion = readRequiredString(body, 'promptVersion', LIMITS.idLength, issues)
-  if (promptVersion !== undefined && !SUPPORTED_PROMPT_VERSIONS.includes(promptVersion)) {
-    issues.push(`promptVersion 不受支持，当前支持：${SUPPORTED_PROMPT_VERSIONS.join(', ')}`)
+  if (promptVersion !== undefined && (!SUPPORTED_PROMPT_VERSIONS.includes(promptVersion) || promptVersion !== expectedPromptVersion)) {
+    issues.push(`promptVersion 必须是 "${expectedPromptVersion}"`)
   }
 
   if (requestId === null) {
@@ -401,6 +407,55 @@ export function parseAdvisorRequest(body: unknown): ParseResult {
       doubts: doubts as DoubtSnapshot[],
       promptVersion: promptVersion as string,
       forceRefresh: forceRefresh as boolean,
+    },
+  }
+}
+
+export interface ChatParseSuccess { ok: true; value: AdvisorChatRequest }
+export type ChatParseResult = ChatParseSuccess | ParseFailure
+
+export function parseAdvisorChatRequest(body: unknown): ChatParseResult {
+  if (!isPlainObject(body)) return { ok: false, requestId: null, issues: ['请求体必须是一个 JSON 对象'] }
+  const requestId = extractRequestId(body)
+  const issues: string[] = []
+  if (body.contractVersion !== CONTRACT_VERSION) issues.push(`contractVersion 必须是 "${CONTRACT_VERSION}"`)
+  if (body.promptVersion !== 'advisor-chat-v1') issues.push('promptVersion 必须是 "advisor-chat-v1"')
+  const historyRaw = body.chatHistory
+  const question = readRequiredString(body, 'question', LIMITS.questionLength, issues)
+  if (historyRaw === undefined) issues.push('chatHistory 缺失')
+  else if (!Array.isArray(historyRaw)) issues.push('chatHistory 必须是数组')
+  else if (historyRaw.length > LIMITS.chatHistory) issues.push(`chatHistory 最多 ${LIMITS.chatHistory} 条`)
+
+  const history: ChatMessage[] = []
+  if (Array.isArray(historyRaw) && historyRaw.length <= LIMITS.chatHistory) {
+    historyRaw.forEach((item, index) => {
+      if (!isPlainObject(item)) { issues.push(`chatHistory[${index}] 必须是对象`); return }
+      const role = item.role
+      if (role !== 'user' && role !== 'assistant') { issues.push(`chatHistory[${index}].role 必须是 user 或 assistant`); return }
+      const text = readRequiredString(item, 'text', LIMITS.chatMessageLength, issues, `chatHistory[${index}].text`)
+      if (text !== undefined) history.push({ role, text })
+    })
+  }
+  const synthetic = { ...body, promptVersion: 'advisor-chat-v1', confirmedContext: [], forceRefresh: false }
+  const base = parseAdvisorRequest(synthetic, 'advisor-chat-v1')
+  if (!base.ok) issues.push(...base.issues)
+  if (issues.length > 0 || !base.ok || question === undefined || requestId === null) {
+    return { ok: false, requestId, issues: issues.length > 0 ? issues : ['请求内容不合法'] }
+  }
+  return {
+    ok: true,
+    value: {
+      requestId,
+      projectId: base.value.projectId,
+      projectRevision: base.value.projectRevision,
+      projectName: base.value.projectName,
+      currentMilestone: base.value.currentMilestone,
+      tasks: base.value.tasks,
+      evidence: base.value.evidence,
+      doubts: base.value.doubts,
+      chatHistory: history,
+      question,
+      promptVersion: 'advisor-chat-v1',
     },
   }
 }

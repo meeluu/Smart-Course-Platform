@@ -68,6 +68,15 @@ export function createMockProvider(options: MockProviderOptions = {}): AdvisorPr
           return { suggestions: buildMockSuggestions(request) }
       }
     },
+    async generateChat(request) {
+      if (mode === 'throw') throw new Error('mock provider 模拟上游故障')
+      if (mode === 'not-configured') throw new AdvisorProviderError('mock provider 未读取到模型密钥', 'MODEL_NOT_CONFIGURED')
+      if (mode === 'slow') {
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
+      }
+      if (mode === 'invalid' || mode === 'empty') return { answer: '' }
+      return { answer: `基于当前项目状态，建议先围绕“${request.question}”检查已有证据，再把可验证的下一步记录下来。` }
+    },
   }
 }
 

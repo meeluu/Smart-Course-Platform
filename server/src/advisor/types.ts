@@ -9,7 +9,7 @@
 export const CONTRACT_VERSION = '1.0'
 
 /** 服务端支持的提示词版本（契约 4.1）：不在列表内的请求直接拒绝，不做静默降级 */
-export const SUPPORTED_PROMPT_VERSIONS: readonly string[] = ['mvp-prompt-v1']
+export const SUPPORTED_PROMPT_VERSIONS: readonly string[] = ['mvp-prompt-v1', 'advisor-chat-v1']
 
 export type TaskStatus = 'todo' | 'doing' | 'done'
 export type DoubtStatus = 'open' | 'resolved'
@@ -58,6 +58,25 @@ export interface AdvisorRequest {
   doubts: DoubtSnapshot[]
   promptVersion: string
   forceRefresh: boolean
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  text: string
+}
+
+export interface AdvisorChatRequest {
+  requestId: string
+  projectId: string
+  projectRevision: number
+  projectName: string
+  currentMilestone: string | null
+  tasks: TaskSnapshot[]
+  evidence: EvidenceSnapshot[]
+  doubts: DoubtSnapshot[]
+  chatHistory: ChatMessage[]
+  question: string
+  promptVersion: 'advisor-chat-v1'
 }
 
 /* ------------------------------------------------------------------ 输出侧 */
@@ -152,6 +171,7 @@ export interface ProviderOutput {
 export interface AdvisorProvider {
   readonly name: string
   generate(request: AdvisorRequest): Promise<ProviderOutput>
+  generateChat?(request: AdvisorChatRequest): Promise<{ answer: unknown }>
 }
 
 /**
