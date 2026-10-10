@@ -334,8 +334,16 @@ describe('WorkbenchView', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes('/api/advisor/chat')) {
+          const request = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+          return new Response(JSON.stringify({
+            contractVersion: '1.0', requestId: request.requestId, projectId: request.projectId,
+            projectRevision: request.projectRevision, source: 'model', fallbackReason: null,
+            answer: '基于当前项目状态，先核对已有证据，再推进下一步。',
+          }), { status: 200, headers: { 'content-type': 'application/json' } })
+        }
+        return new Response(
           JSON.stringify({
             contractVersion: '1.0',
             requestId: null,
@@ -345,8 +353,8 @@ describe('WorkbenchView', () => {
             retryAfterSeconds: null,
           }),
           { status: 400, headers: { 'content-type': 'application/json' } },
-        ),
-      ),
+        )
+      }),
     )
   })
 
@@ -609,33 +617,26 @@ describe('WorkbenchView', () => {
     expect(wrapper.text()).not.toContain('这是一个空白项目')
   })
 
-  it('keeps chat history per project and signs replies as local tips', async () => {
-    // 聊天回复走 window.setTimeout：用假定时器把它推进完，避免残留定时器污染后续用例
-    vi.useFakeTimers()
-    try {
+  it('keeps chat history per project and displays model answers', async () => {
       const store = freshStore()
       const firstProjectId = createProject(store, '项目一')
       const secondProjectId = createProject(store, '项目二')
       const wrapper = mount(WorkbenchView)
 
       store.sendChat('项目二的问题')
-      await vi.advanceTimersByTimeAsync(700)
+      await vi.waitFor(() => expect(store.current?.chat).toHaveLength(2))
 
       const chat = store.current?.chat ?? []
       expect(chat[0]?.text).toBe('项目二的问题')
-      // 回复署名是「本地提示」，不伪装成真实 AI
-      expect(chat[1]?.who).toBe('本地提示')
-      expect(chat[1]?.who).not.toBe('AI 顾问')
+      expect(chat[1]?.who).toBe('AI 模型')
+      expect(chat[1]?.source).toBe('model')
 
       await wrapper.find('select.proj-select').setValue(firstProjectId)
       expect(store.current?.chat).toHaveLength(0)
 
       await wrapper.find('select.proj-select').setValue(secondProjectId)
       expect(store.current?.chat).toHaveLength(2)
-      expect(store.current?.chat[1]?.who).toBe('本地提示')
-    } finally {
-      vi.useRealTimers()
-    }
+      expect(store.current?.chat[1]?.who).toBe('AI 模型')
   })
 
   it('does not request suggestions for a completely blank project', async () => {

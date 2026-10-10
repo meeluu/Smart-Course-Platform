@@ -10,6 +10,7 @@ import { CHINESE_NUM, WEEK_LABELS, useWorkbenchStore } from '@/stores/workbench'
 import { deriveDoubtSnapshots, deriveEvidenceSnapshots } from '@/domain/activity'
 import { findClaimedTaskFor, taskStatusText } from '@/domain/progress'
 import { BLANK_PROJECT_NOTE, summarizeProjectStatus } from '@/domain/projectStatus'
+import { MAX_ADVISOR_CHAT_QUESTION_LENGTH } from '@/domain/recommendation'
 import type { AdvisorFallbackReason, Recommendation, SubmitEvidenceInput } from '@/domain/recommendation'
 import type { Milestone, SuggestedStep, TaskStatus } from '@/types/platform'
 
@@ -345,10 +346,18 @@ const chatLog = ref<HTMLElement | null>(null)
 
 async function send() {
   const text = chat.value
-  if (!text.trim()) return
+  if (!text.trim() || store.chatLoading) return
   chat.value = ''
-  store.sendChat(text)
+  await store.sendChat(text)
   await scrollChat()
+}
+
+const CHAT_FALLBACK_REASON_TEXT: Record<string, string> = {
+  MODEL_TIMEOUT: '模型响应超时',
+  MODEL_UNAVAILABLE: '模型服务暂时不可用',
+  MODEL_NOT_CONFIGURED: '服务端还没接入模型',
+  INVALID_MODEL_OUTPUT: '模型返回内容不符合要求',
+  RATE_LIMITED: '请求太频繁',
 }
 
 async function scrollChat() {
@@ -650,32 +659,40 @@ const openDoubts = computed(() =>
           <div class="card-h">
             向顾问提问
             <span class="tag" style="background:#f1efe8;color:#5f5e5a;border:1px solid #d3d1c7;">
-              答疑演示 · 本地提示
+              AI 项目顾问
             </span>
           </div>
           <div class="card-b">
             <div class="chat-notice">
-              当前回复来自本地固定文案，不是后端 AI 生成；对话按项目保存在本地。
-              接入后端聊天接口后会替换为真实回答。
+              回答会结合当前项目的任务、证据、疑问和历史对话；上传文件正文不会自动作为已读内容发送。
+              对话按项目保存在本地。
             </div>
             <div ref="chatLog" class="chat-log">
               <div v-if="!project.chat.length" class="empty" style="padding:4px 0;">
-                还没有对话。把你卡住的地方写下来，会先得到一条本地提示。
+                还没有对话。把你卡住的地方写下来，AI 项目顾问会结合当前状态回答。
               </div>
               <div v-for="(msg, i) in project.chat" :key="i" class="msg" :class="{ me: msg.me }">
                 <div>
-                  <div class="who" :style="msg.me ? 'text-align:right;' : ''">{{ msg.who }}</div>
+                  <div class="who" :style="msg.me ? 'text-align:right;' : ''">
+                    {{ msg.who }}<span v-if="msg.source === 'fallback' && msg.fallbackReason"> · {{ CHAT_FALLBACK_REASON_TEXT[msg.fallbackReason] ?? '服务端兜底' }}</span>
+                  </div>
                   <div class="bubble">{{ msg.text }}</div>
                 </div>
               </div>
+              <div v-if="store.chatLoading" class="msg" aria-live="polite">
+                <div><div class="who">AI 正在思考</div><div class="bubble">正在结合当前项目状态生成回答…</div></div>
+              </div>
+              <div v-if="store.chatError" class="chat-error" role="alert">{{ store.chatError }}</div>
             </div>
             <div class="chat-input">
               <input
                 v-model="chat"
-                placeholder="描述你卡住的问题（当前为本地演示回复）…"
+                :disabled="store.chatLoading"
+                :maxlength="MAX_ADVISOR_CHAT_QUESTION_LENGTH"
+                placeholder="描述你卡住的问题…"
                 @keydown.enter="send"
               />
-              <button class="btn primary" @click="send">发送</button>
+              <button class="btn primary" :disabled="store.chatLoading || !chat.trim()" @click="send">{{ store.chatLoading ? '思考中…' : '发送' }}</button>
             </div>
           </div>
         </div>
@@ -737,6 +754,16 @@ const openDoubts = computed(() =>
   color: #5f5e5a;
   font-size: 11.5px;
   line-height: 1.6;
+}
+
+.chat-error {
+  margin-top: 8px;
+  border: 1px solid #f2a7a0;
+  border-radius: 8px;
+  padding: 7px 9px;
+  color: #a32d2d;
+  background: #fff4f2;
+  font-size: 12px;
 }
 
 .evidence-save-status {

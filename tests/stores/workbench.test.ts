@@ -39,20 +39,29 @@ function useFailingStorage(): void {
  * 这样 store 会直接走本地规则兜底，不会因为重试退避让用例变慢，也绝不访问真实网络。
  */
 function stubAdvisorContractError(): void {
-  const fetchImpl = vi.fn(async () =>
-    new Response(
-      JSON.stringify({
-        contractVersion: '1.0',
-        requestId: null,
-        code: 'INVALID_INPUT',
-        message: '测试替身',
-        retryable: false,
-        retryAfterSeconds: null,
-      }),
+  const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes('/api/advisor/chat')) {
+      const request = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+      return new Response(JSON.stringify({
+        contractVersion: '1.0', requestId: request.requestId, projectId: request.projectId,
+        projectRevision: request.projectRevision, source: 'model', fallbackReason: null,
+        answer: '基于当前项目状态，先核对已有证据，再推进下一步。',
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    return new Response(
+      JSON.stringify({ contractVersion: '1.0', requestId: null, code: 'INVALID_INPUT', message: '测试替身', retryable: false, retryAfterSeconds: null }),
       { status: 400, headers: { 'content-type': 'application/json' } },
-    ),
-  )
+    )
+  })
   vi.stubGlobal('fetch', fetchImpl)
+}
+
+function chatResponse(request: Record<string, unknown>, source: 'model' | 'fallback' = 'model'): Response {
+  return new Response(JSON.stringify({
+    contractVersion: '1.0', requestId: request.requestId, projectId: request.projectId,
+    projectRevision: request.projectRevision, source, fallbackReason: source === 'fallback' ? 'MODEL_TIMEOUT' : null,
+    answer: source === 'fallback' ? '服务端暂时无法调用模型，请依据当前证据继续推进。' : '结合当前项目状态，建议先核对证据。',
+  }), { status: 200, headers: { 'content-type': 'application/json' } })
 }
 
 function freshStore(): Store {
@@ -1617,10 +1626,74 @@ describe('项目状态提示：banner 随真实数据更新，不写死空白项
   })
 })
 
-describe('向顾问提问：本地演示回复', () => {
-  it('提问与回复都记在当前项目，回复署名「本地提示」', async () => {
-    vi.useFakeTimers()
-    try {
+describe('向顾问提问：真实聊天接口', () => {
+  it('请求期间显示 loading 并阻止重复提交', async () => {
+    let resolveRequest: ((response: Response) => void) | undefined
+    const fetchImpl = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((resolve) => {
+      resolveRequest = () => resolve(chatResponse(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>))
+    }))
+    vi.stubGlobal('fetch', fetchImpl)
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+    const first = store.sendChat('第一个问题')
+    expect(store.chatLoading).toBe(true)
+    await store.sendChat('重复问题')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    resolveRequest?.(new Response())
+    await first
+  })
+
+  it('显示服务端 fallback 及原因', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => chatResponse(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>, 'fallback')))
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+    await store.sendChat('模型不可用时怎么办？')
+    expect(currentProject(store).chat[1]?.who).toBe('服务端兜底')
+    expect(currentProject(store).chat[1]?.fallbackReason).toBe('MODEL_TIMEOUT')
+  })
+
+  it('网络失败显示明确错误且不泄露请求内容', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network failure') }))
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+    await store.sendChat('网络失败测试问题')
+    expect(currentProject(store).chat).toHaveLength(1)
+    expect(store.chatError).toContain('无法连接后端')
+    expect(store.chatError).not.toContain('network failure')
+  })
+
+  it('超过问题长度上限不发送请求', async () => {
+    const fetchImpl = vi.fn()
+    vi.stubGlobal('fetch', fetchImpl)
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+    await store.sendChat('x'.repeat(2001))
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(store.chatError).toContain('不能超过')
+  })
+
+  it('切换项目或 revision 后丢弃旧响应', async () => {
+    const pending: Array<(response: Response) => void> = []
+    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((resolve) => {
+      pending.push(() => resolve(chatResponse(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)))
+    })))
+    const store = freshStore()
+    const firstId = createBlankProjectOrThrow(store, '项目一')
+    const secondId = createBlankProjectOrThrow(store, '项目二')
+    const oldRequest = store.sendChat('旧项目问题')
+    store.selectProject(firstId)
+    pending[0]?.(new Response())
+    await oldRequest
+    expect(store.projects.find((item) => item.projectId === secondId)?.chat).toHaveLength(1)
+
+    store.selectProject(secondId)
+    const revisionRequest = store.sendChat('旧版本问题')
+    store.claimTask({ draft: { title: '改变版本', doneCriteria: '完成', requestId: null, basisEvidenceIds: [], basisDoubtIds: [] } })
+    pending[1]?.(new Response())
+    await revisionRequest
+    expect(currentProject(store).chat.filter((item) => !item.me)).toHaveLength(0)
+  })
+  it('提问与回复都记在当前项目，回复署名「AI 模型」', async () => {
       const store = freshStore()
       const firstProjectId = createBlankProjectOrThrow(store, '项目一')
       const secondProjectId = createBlankProjectOrThrow(store, '项目二')
@@ -1628,12 +1701,12 @@ describe('向顾问提问：本地演示回复', () => {
       store.sendChat('这个方法在我们的数据上适用吗？')
       expect(currentProject(store).chat).toHaveLength(1)
 
-      await vi.advanceTimersByTimeAsync(700)
+      await vi.waitFor(() => expect(currentProject(store).chat).toHaveLength(2))
 
       const chat = currentProject(store).chat
       expect(chat).toHaveLength(2)
-      expect(chat[1]?.who).toBe('本地提示')
-      expect(chat[1]?.who).not.toBe('AI 顾问')
+      expect(chat[1]?.who).toBe('AI 模型')
+      expect(chat[1]?.source).toBe('model')
 
       // 聊天记录按项目保存：切换项目互不串
       store.selectProject(firstProjectId)
@@ -1641,12 +1714,21 @@ describe('向顾问提问：本地演示回复', () => {
       store.selectProject(secondProjectId)
       expect(currentProject(store).chat).toHaveLength(2)
       expect(store.projects.find((item) => item.projectId === firstProjectId)?.chat).toHaveLength(0)
-    } finally {
-      vi.useRealTimers()
-    }
+      const reloaded = freshStore()
+      expect(reloaded.current?.chat[1]?.who).toBe('AI 模型')
   })
 
-  it('askAboutStep 按 taskId 定位任务，不依赖数组下标', () => {
+  it('空问题不发送请求也不写入聊天记录', async () => {
+    const fetchImpl = vi.fn()
+    vi.stubGlobal('fetch', fetchImpl)
+    const store = freshStore()
+    createBlankProjectOrThrow(store)
+    await store.sendChat('   ')
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(currentProject(store).chat).toHaveLength(0)
+  })
+
+  it('askAboutStep 按 taskId 定位任务并调用真实聊天接口', async () => {
     const store = freshStore()
     createBlankProjectOrThrow(store)
 
@@ -1674,12 +1756,11 @@ describe('向顾问提问：本地演示回复', () => {
 
     store.askAboutStep(claimed.data.taskId)
 
-    const chat = currentProject(store).chat
-    expect(chat).toHaveLength(2)
-    expect(chat[0]?.who).toBe('我')
-    expect(chat[0]?.text).toContain('写清项目目标与预期产出')
-    expect(chat[1]?.who).toBe('本地提示')
-    expect(chat[1]?.text).toContain('一页目标说明')
+    await vi.waitFor(() => expect(currentProject(store).chat).toHaveLength(2))
+    const completedChat = currentProject(store).chat
+    expect(completedChat[0]?.who).toBe('我')
+    expect(completedChat[0]?.text).toContain('写清项目目标与预期产出')
+    expect(completedChat[1]?.who).toBe('AI 模型')
   })
 
   it('askAboutStep 对不存在的任务给出提示，不写入聊天记录', () => {

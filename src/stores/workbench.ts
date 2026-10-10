@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import type {
   Doubt,
@@ -16,7 +16,9 @@ import { generateDirection } from '@/services/papers'
 // 建议请求：适配层负责 HTTP 与契约校验，mvpFallbacks 负责后端不可用时的本地兜底
 import {
   buildAdvisorRequest,
+  buildAdvisorChatRequest,
   createRequestId,
+  fetchAdvisorChat,
   fetchRecommendations,
   isStaleResponseError,
   shouldFallbackToLocalRule,
@@ -62,6 +64,7 @@ import type {
   SubmitEvidenceResult,
 } from '@/domain/recommendation'
 import {
+  MAX_ADVISOR_CHAT_QUESTION_LENGTH,
   MAX_EVIDENCE_DID_WHAT_LENGTH,
   MAX_EVIDENCE_FOUND_WHAT_LENGTH,
   MAX_EVIDENCE_UNSURE_LENGTH,
@@ -74,22 +77,6 @@ export const WEEK_LABELS = ['8.31-9.6', '9.7-9.13', '9.14-9.20', '9.21-9.27']
 
 /** 中文序号，用于里程碑编号 */
 export const CHINESE_NUM = ['①', '②', '③', '④', '⑤', '⑥']
-
-/**
- * 本地演示回复的署名。
- * 后端目前**没有**聊天接口（只有 POST /api/advisor/recommendations），
- * 所以这几条回复一律署名为「本地提示」，界面上也不出现"AI 生成"的表述——
- * 不把固定文案伪装成真实 AI 输出。
- */
-const LOCAL_REPLY_NAME = '本地提示'
-
-/** 本地固定回复池（答疑演示）：给方向，不给答案 */
-const LOCAL_REPLIES = [
-  '项目刚启动，建议先按推荐的步骤走——完成任何一步后记得提交证据，我会据此更新状态并给出下一步。',
-  '这个问题可以先用「论文推荐」页的检索提示词查一查，把文献结论带回组内讨论，调研结论本身就是很好的第一条证据。',
-  '我不直接给答案，但提示一个方向：先想清楚这个问题影响哪个里程碑的决策——如果影响启动方向就值得现在花时间；如果只是细节，先记下来往前走。',
-  '如果想深入了解某个具体方向，可以去「论文推荐」页让 AI 生成针对性的检索提示词。',
-]
 
 /** 建议请求的状态机（契约 5.3） */
 export type AiStatus = 'idle' | 'loading' | 'model' | 'fallback' | 'local-rule' | 'error'
@@ -191,7 +178,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   creating.value = projects.value.length === 0
 
   let toastTimer: number | undefined
-  let replyIdx = 0
+  const chatLoadingByProject = ref<Record<string, boolean>>({})
+  const chatErrorByProject = ref<Record<string, string | null>>({})
+  let chatAbort: AbortController | null = null
+  let chatRequest: { projectId: string; projectRevision: number; requestId: string } | null = null
 
   const current = computed<Project | undefined>(() =>
     curIdx.value >= 0 ? projects.value[curIdx.value] : undefined,
@@ -227,6 +217,24 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const aiStatus = computed<AiStatus>(() => advisor.value.status)
   const recommendations = computed<Recommendation[]>(() => advisor.value.suggestions)
   const aiError = computed<AdvisorApiError | null>(() => advisor.value.error)
+  const chatLoading = computed(() => currentProjectId.value !== null && chatLoadingByProject.value[currentProjectId.value] === true)
+  const chatError = computed(() => currentProjectId.value === null ? null : chatErrorByProject.value[currentProjectId.value] ?? null)
+
+  function cancelChat(): void {
+    if (chatRequest !== null) {
+      chatLoadingByProject.value = { ...chatLoadingByProject.value, [chatRequest.projectId]: false }
+    }
+    chatRequest = null
+    chatAbort?.abort()
+    chatAbort = null
+  }
+
+  // 同步作废身份，切换后再切回来也不能接受旧回答；新建项目同样适用。
+  watch(
+    () => [currentProjectId.value, current.value?.projectRevision],
+    cancelChat,
+    { flush: 'sync' },
+  )
 
   /** 只替换目标项目的那一份状态，不碰其他项目 */
   function patchAdvisor(projectId: string, patch: Partial<AdvisorState>): void {
@@ -623,11 +631,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     return claimTask({ taskId: task.id })
   }
 
-  /**
-   * 就某条真实任务提问。
-   * 传 taskId（稳定 ID）或旧下标；回复来自本地固定文案，因此署名「本地提示」，
-   * 消息内容里也写明这是本地演示，不是后端 AI 输出。
-   */
+  /** 就某条真实任务提问，复用聊天接口。 */
   function askAboutStep(target: number | string) {
     const project = current.value
     if (project === undefined) return
@@ -642,29 +646,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       return
     }
 
-    const doneCriteria = normalizeNullable(task.doneCriteria)
     const why = normalizeNullable(task.why)
     const lead = why === null ? '这一步该怎么开始？' : `${why.slice(0, 40)}…该怎么开始？`
-
-    project.chat.push({
-      who: '我',
-      me: true,
-      text: `关于「${task.title}」，我想先了解：${lead}`,
-    })
-    project.chat.push({
-      who: LOCAL_REPLY_NAME,
-      me: false,
-      text:
-        `这一步的完成标志是「${doneCriteria ?? '还没写完成标志'}」。` +
-        '建议先做其中的文献部分——用「论文推荐」页的提示词检索，把结论整理成一页笔记，那就是最初的证据。' +
-        '（本地演示回复：暂未接入后端 AI，这条提示来自固定文案。）',
-    })
-
-    if (!persistOrRollback(() => project.chat.splice(-2, 2))) {
-      toast('本地存储不可用，提问没有保存')
-      return
-    }
-    toast('已记录提问，并给出一条本地提示')
+    return sendChat(`关于「${task.title}」，我想先了解：${lead}`)
   }
 
   /* -------------------------------------------------------- 解决疑问 */
@@ -723,30 +707,70 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   /* ---------------------------------------------------------------- 问答 */
 
-  /**
-   * 答疑演示（本地）：提问会存进**当前项目**的 `project.chat`，
-   * 回复取自本地固定文案池并署名「本地提示」。
-   *
-   * 后端目前没有聊天接口，所以这里刻意不做成"看起来像真 AI"的样子；
-   * 等 `POST /api/advisor/chat` 就绪后，只需把这一段换成 API 调用（接口见最终报告）。
-   */
-  function sendChat(text: string) {
+  /** 向后端 AI 顾问提问；请求身份与项目版本不匹配时静默丢弃回答。 */
+  async function sendChat(text: string): Promise<void> {
     const project = current.value
-    if (project === undefined || text.trim() === '') return
-    const message = { who: '我', me: true, text: text.trim() }
-    project.chat.push(message)
+    const question = text.trim()
+    if (project === undefined || question === '' || chatLoading.value) return
+    if (question.length > MAX_ADVISOR_CHAT_QUESTION_LENGTH) {
+      chatErrorByProject.value = { ...chatErrorByProject.value, [project.projectId]: `问题不能超过 ${MAX_ADVISOR_CHAT_QUESTION_LENGTH} 个字符` }
+      return
+    }
+    const projectId = project.projectId
+    const projectRevision = computeProjectRevision(project)
+    const requestId = createRequestId()
+    const reference = new Date()
+    const request = buildAdvisorChatRequest({
+      projectId,
+      projectRevision,
+      projectName: project.name,
+      currentMilestone: currentMilestoneName(project),
+      tasks: deriveTaskSnapshots(project, reference),
+      evidence: deriveEvidenceSnapshots(project, reference),
+      doubts: deriveDoubtSnapshots(project, reference),
+      chatHistory: project.chat
+        .filter((message) => message.me || message.source === 'model' || message.source === 'fallback')
+        .slice(-20)
+        .map((message) => ({ role: message.me ? 'user' : 'assistant', text: message.text.slice(0, 2000) })),
+      question,
+      requestId,
+    })
+    project.chat.push({ who: '我', me: true, text: question })
     if (!persistOrRollback(() => project.chat.pop())) {
       toast('本地存储不可用，消息没有保存')
       return
     }
-    const reply = LOCAL_REPLIES[replyIdx % LOCAL_REPLIES.length]
-    replyIdx += 1
-    window.setTimeout(() => {
-      // 闭包捕获的是提问时的项目：中途切换项目也不会把回复写到别的项目里
-      project.chat.push({ who: LOCAL_REPLY_NAME, me: false, text: reply })
-      // 回复是展示内容：写盘失败只撤销这一条，不影响已经发出的提问
-      persistOrRollback(() => project.chat.pop())
-    }, 600)
+    chatAbort?.abort()
+    const controller = new AbortController()
+    chatAbort = controller
+    const identity = { projectId, projectRevision, requestId }
+    chatRequest = identity
+    chatLoadingByProject.value = { ...chatLoadingByProject.value, [projectId]: true }
+    chatErrorByProject.value = { ...chatErrorByProject.value, [projectId]: null }
+    try {
+      const result = await fetchAdvisorChat(request, { signal: controller.signal })
+      const isCurrent = chatRequest === identity && currentProjectId.value === projectId && computeProjectRevision(project) === projectRevision
+      if (!isCurrent) return
+      if (result.ok) {
+        project.chat.push({ who: result.data.source === 'fallback' ? '服务端兜底' : 'AI 模型', me: false, text: result.data.answer, source: result.data.source, fallbackReason: result.data.fallbackReason })
+        if (!persistOrRollback(() => project.chat.pop())) {
+          chatErrorByProject.value = { ...chatErrorByProject.value, [projectId]: '本地存储不可用，回答没有保存，请稍后重试' }
+        }
+      } else if (result.error.code !== 'STALE_RESPONSE' && result.error.cause !== 'aborted') {
+        const message = result.error.message || '无法连接后端服务，请稍后重试'
+        chatErrorByProject.value = { ...chatErrorByProject.value, [projectId]: message }
+      }
+    } catch {
+      if (chatRequest === identity) {
+        chatErrorByProject.value = { ...chatErrorByProject.value, [projectId]: '聊天请求未能完成，请稍后重试' }
+      }
+    } finally {
+      if (chatRequest === identity) {
+        chatRequest = null
+        chatLoadingByProject.value = { ...chatLoadingByProject.value, [projectId]: false }
+        if (chatAbort === controller) chatAbort = null
+      }
+    }
   }
 
   /* -------------------------------------------------------- 提交证据 */
@@ -1262,5 +1286,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     aiStatus,
     recommendations,
     aiError,
+    chatLoading,
+    chatError,
   }
 })

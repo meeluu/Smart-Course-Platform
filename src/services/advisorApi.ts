@@ -1,10 +1,14 @@
 import { requestJson, type HttpFailureCause } from './http'
 import {
   CONTRACT_VERSION,
+  ADVISOR_CHAT_PROMPT_VERSION,
   DEFAULT_PROMPT_VERSION,
   RETRYABLE_BY_CODE,
   isAdvisorErrorCode,
   type AdvisorApiError,
+  type AdvisorChatRequest,
+  type AdvisorChatResult,
+  type AdvisorChatSuccess,
   type AdvisorApiResult,
   type AdvisorErrorCause,
   type AdvisorFallbackReason,
@@ -35,6 +39,7 @@ import {
 
 /** 契约 4.0：VITE_API_BASE_URL 不含 /api，由适配层补全 */
 export const ADVISOR_RECOMMENDATIONS_PATH = '/api/advisor/recommendations'
+export const ADVISOR_CHAT_PATH = '/api/advisor/chat'
 
 /** 契约 4.6：建议最多 3 条。服务端已校验，前端再兜一次，避免异常响应污染列表 */
 export const MAX_SUGGESTIONS = 3
@@ -124,6 +129,36 @@ export function buildAdvisorRequest(input: BuildAdvisorRequestInput): AdvisorRec
     doubts: input.doubts,
     promptVersion: input.promptVersion ?? DEFAULT_PROMPT_VERSION,
     forceRefresh: input.forceRefresh ?? false,
+  }
+}
+
+export interface BuildAdvisorChatRequestInput {
+  projectId: string
+  projectRevision: number
+  projectName: string
+  currentMilestone: string | null
+  tasks: TaskSnapshot[]
+  evidence: EvidenceSnapshot[]
+  doubts: DoubtSnapshot[]
+  chatHistory: AdvisorChatRequest['chatHistory']
+  question: string
+  requestId?: string
+}
+
+export function buildAdvisorChatRequest(input: BuildAdvisorChatRequestInput): AdvisorChatRequest {
+  return {
+    contractVersion: CONTRACT_VERSION,
+    promptVersion: ADVISOR_CHAT_PROMPT_VERSION,
+    requestId: input.requestId ?? createRequestId(),
+    projectId: input.projectId,
+    projectRevision: input.projectRevision,
+    projectName: input.projectName,
+    currentMilestone: input.currentMilestone,
+    tasks: input.tasks,
+    evidence: input.evidence,
+    doubts: input.doubts,
+    chatHistory: input.chatHistory,
+    question: input.question,
   }
 }
 
@@ -265,6 +300,81 @@ function staleResponseError(success: AdvisorRecommendationsSuccess): AdvisorApiE
     requestId: success.requestId,
     cause: 'stale-response',
   }
+}
+
+function asChatSuccess(value: unknown): AdvisorChatSuccess | null {
+  if (!isPlainObject(value)) return null
+  const { contractVersion, requestId, projectId, projectRevision, source, answer } = value
+  if (contractVersion !== CONTRACT_VERSION || typeof requestId !== 'string' || typeof projectId !== 'string') return null
+  if (typeof projectRevision !== 'number' || !Number.isInteger(projectRevision)) return null
+  if (source !== 'model' && source !== 'fallback') return null
+  if (typeof answer !== 'string' || answer.trim() === '') return null
+  const fallbackReason = value.fallbackReason
+  const allowedFallbackReasons = ['MODEL_TIMEOUT', 'MODEL_UNAVAILABLE', 'MODEL_NOT_CONFIGURED', 'INVALID_MODEL_OUTPUT', 'RATE_LIMITED']
+  if (fallbackReason !== null && (typeof fallbackReason !== 'string' || !allowedFallbackReasons.includes(fallbackReason))) return null
+  return {
+    contractVersion,
+    requestId,
+    projectId,
+    projectRevision,
+    source,
+    fallbackReason: fallbackReason as AdvisorFallbackReason | null,
+    answer,
+  }
+}
+
+function chatRequestFailure(cause: HttpFailureCause): AdvisorApiError {
+  return httpFailureToError(cause)
+}
+
+function chatStaleResponseError(success: AdvisorChatSuccess): AdvisorApiError {
+  console.warn('[advisor-chat] 丢弃过期响应：requestId / projectId / projectRevision 与本次请求不一致')
+  return {
+    code: 'STALE_RESPONSE',
+    message: '该聊天响应已过期，已丢弃',
+    retryable: false,
+    retryAfterSeconds: null,
+    requestId: success.requestId,
+    cause: 'stale-response',
+  }
+}
+
+export interface FetchAdvisorChatOptions {
+  timeoutMs?: number
+  signal?: AbortSignal
+  fetchImpl?: typeof fetch
+}
+
+export async function fetchAdvisorChat(
+  request: AdvisorChatRequest,
+  options: FetchAdvisorChatOptions = {},
+): Promise<AdvisorChatResult> {
+  const result = await requestJson(ADVISOR_CHAT_PATH, {
+    method: 'POST',
+    body: request,
+    timeoutMs: options.timeoutMs,
+    signal: options.signal,
+    fetchImpl: options.fetchImpl,
+  })
+  if (!result.ok) {
+    if (result.cause === 'http') {
+      const failure = asContractFailure(result.data)
+      if (failure !== null) return { ok: false, error: contractFailureToError(failure) }
+    }
+    return { ok: false, error: chatRequestFailure(result.cause) }
+  }
+  const success = asChatSuccess(result.data)
+  if (success === null) {
+    return { ok: false, error: { ...httpFailureToError('invalid-json'), cause: 'invalid-response' } }
+  }
+  if (
+    success.requestId !== request.requestId ||
+    success.projectId !== request.projectId ||
+    success.projectRevision !== request.projectRevision
+  ) {
+    return { ok: false, error: chatStaleResponseError(success) }
+  }
+  return { ok: true, data: success }
 }
 
 /* -------------------------------------------------------------- 主流程 */

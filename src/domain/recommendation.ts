@@ -18,6 +18,8 @@ export const CONTRACT_VERSION = '1.0'
 
 /** 本轮服务端支持的提示词版本（契约 4.1） */
 export const DEFAULT_PROMPT_VERSION = 'mvp-prompt-v1'
+export const ADVISOR_CHAT_PROMPT_VERSION = 'advisor-chat-v1'
+export const MAX_ADVISOR_CHAT_QUESTION_LENGTH = 2000
 
 /**
  * 建议来源。
@@ -79,6 +81,40 @@ export interface AdvisorRecommendationsRequest {
   promptVersion: string
   forceRefresh: boolean
 }
+
+export interface AdvisorChatMessage {
+  role: 'user' | 'assistant'
+  text: string
+}
+
+export interface AdvisorChatRequest {
+  contractVersion: string
+  promptVersion: string
+  requestId: string
+  projectId: string
+  projectRevision: number
+  projectName: string
+  currentMilestone: string | null
+  tasks: TaskSnapshot[]
+  evidence: EvidenceSnapshot[]
+  doubts: DoubtSnapshot[]
+  chatHistory: AdvisorChatMessage[]
+  question: string
+}
+
+export interface AdvisorChatSuccess {
+  contractVersion: string
+  requestId: string
+  projectId: string
+  projectRevision: number
+  source: AdvisorResponseSource
+  fallbackReason: AdvisorFallbackReason | null
+  answer: string
+}
+
+export type AdvisorChatResult =
+  | { ok: true; data: AdvisorChatSuccess }
+  | { ok: false; error: AdvisorApiError }
 
 /* -------------------------------------------------------------- 输出侧 */
 

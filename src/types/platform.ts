@@ -178,6 +178,8 @@ export interface ChatMessage {
   text: string
   /** 是否是学生自己说的 */
   me: boolean
+  source?: 'model' | 'fallback' | 'error'
+  fallbackReason?: string | null
 }
 
 /** AI 现场生成的检索方向卡片 */
