@@ -52,6 +52,55 @@ export const LIMITS = {
 const TASK_STATUSES: readonly TaskStatus[] = ['todo', 'doing', 'done']
 const DOUBT_STATUSES: readonly DoubtStatus[] = ['open', 'resolved']
 
+/**
+ * 模型返回给用户的文本不得泄露协议字段或内部状态名。
+ * 只对已经提取出的用户可见文本调用此检查，协议 JSON 的键名不属于展示内容。
+ */
+const INTERNAL_OUTPUT_TERMS = [
+  'contractVersion',
+  'promptVersion',
+  'requestId',
+  'projectId',
+  'currentMilestone',
+  'projectName',
+  'confirmedContext',
+  'projectRevision',
+  'doneCriteria',
+  'evidence',
+  'evidenceId',
+  'basisEvidenceIds',
+  'doubts',
+  'doubtId',
+  'basisDoubtIds',
+  'tasks',
+  'taskId',
+  'chatHistory',
+  'question',
+  'answer',
+  'existingTaskId',
+  'whyNow',
+  'title',
+  'source',
+  'fallbackReason',
+  'cached',
+  'doing',
+  'todo',
+  'done',
+] as const
+
+const INTERNAL_OUTPUT_TERM_PATTERN = new RegExp(
+  `(?:^|[^A-Za-z0-9_])(?:${INTERNAL_OUTPUT_TERMS.join('|')})(?:$|[^A-Za-z0-9_])`,
+  'i',
+)
+
+export function containsInternalOutputTerm(text: string): boolean {
+  return INTERNAL_OUTPUT_TERM_PATTERN.test(text)
+}
+
+export function isHumanizedUserText(text: string): boolean {
+  return /[\u3400-\u9fff]/u.test(text) && !containsInternalOutputTerm(text)
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

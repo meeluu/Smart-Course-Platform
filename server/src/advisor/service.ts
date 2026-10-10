@@ -1,4 +1,4 @@
-import { LIMITS, normalizeSuggestions } from './validation.js'
+import { isHumanizedUserText, LIMITS, normalizeSuggestions } from './validation.js'
 import type { FallbackGenerator } from './fallback.js'
 import {
   AdvisorProviderError,
@@ -153,7 +153,11 @@ export function createAdvisorService(options: AdvisorServiceOptions): AdvisorSer
       const normalized = normalizeSuggestions(outcome.output, request)
       logNotes(request, normalized.notes)
 
-      if (!normalized.ok || normalized.suggestions.length === 0) {
+      const modelTextHasInternalTerm = normalized.ok && normalized.suggestions.some((suggestion) =>
+        [suggestion.title, suggestion.whyNow, suggestion.doneCriteria].some((text) => !isHumanizedUserText(text)),
+      )
+
+      if (!normalized.ok || normalized.suggestions.length === 0 || modelTextHasInternalTerm) {
         logger.warn('模型输出不合法，改用规则兜底', { requestId: request.requestId })
         return runFallback(request, 'INVALID_MODEL_OUTPUT')
       }
@@ -173,7 +177,9 @@ export function createAdvisorService(options: AdvisorServiceOptions): AdvisorSer
         : await callChatProvider(providerWithChat.bind(provider), request, timeoutMs)
       if (outcome.ok && typeof outcome.output.answer === 'string') {
         const answer = outcome.output.answer.replace(/[\u0000-\u001f\u007f]/g, ' ').trim()
-        if (answer.length > 0 && answer.length <= LIMITS.answerLength) return { ok: true, source: 'model', fallbackReason: null, answer }
+        if (answer.length > 0 && answer.length <= LIMITS.answerLength && isHumanizedUserText(answer)) {
+          return { ok: true, source: 'model', fallbackReason: null, answer }
+        }
       }
       const reason = outcome.ok ? 'INVALID_MODEL_OUTPUT' : outcome.reason
       const fallback = '目前无法可靠生成回答。请根据当前项目中的任务、证据和未解决疑问继续推进，并把新的发现记录为证据后再提问。'

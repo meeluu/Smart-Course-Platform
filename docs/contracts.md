@@ -351,6 +351,8 @@ HTTP `200`。
 | `promptVersion` | string | 是 | 本次实际使用的提示词版本，必须等于请求值 |
 | `suggestions` | Suggestion[] | 是 | 1～3 条，见 4.5 |
 
+`title`、`whyNow`、`doneCriteria` 是直接展示给用户的文本，必须使用自然、易懂的中文。模型不得在这些文本中输出字段名、JSON 键名、变量名或内部状态名；例如 `currentMilestone`、`confirmedContext`、`projectRevision`、`doneCriteria`、`evidence`、`doubts`、`tasks`、`doing`、`done` 必须分别改写为“当前里程碑”“已确认背景”“项目版本”“完成标准”“证据”“未解决疑问”“任务”“进行中”“已完成”。服务端检测到内部词或非中文用户文案时按非法模型输出进入规则兜底，不把原始模型文本返回给客户端。
+
 ```json
 {
   "contractVersion": "1.0",
@@ -675,6 +677,7 @@ Content-Type: application/json
 成功响应为 HTTP 200，`source` 为 `model` 或 `fallback`；模型成功时 `fallbackReason` 为 `null`，并返回非空 `answer`。
 模型不可用、超时或输出非法时，服务端返回安全的推进提示，`source: "fallback"`，并设置对应的
 `fallbackReason`（例如 `MODEL_TIMEOUT`），不返回 API Key、环境变量、服务器路径或上游响应原文。
+面向用户的建议文本和聊天回答必须使用自然、易懂的中文。模型不得在用户可见文本中输出字段名、JSON 键名、变量名或内部状态名（例如 `currentMilestone`、`doneCriteria`、`evidence`、`doubts`、`tasks`、`doing`、`done`）；需要表达这些概念时应使用“当前里程碑”“完成标准”“证据”“未解决疑问”“任务”“进行中”“已完成”等中文。服务端检测到这类内部词时按模型输出非法处理并安全兜底，不把原始模型文本返回给客户端。
 非法 JSON、缺字段、超限请求返回 400 `INVALID_INPUT`；GET 返回 405；允许的 CORS 预检返回 204，其他来源返回 403。
 
 ---
