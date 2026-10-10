@@ -392,6 +392,48 @@ export function isAdvisorErrorCode(value: unknown): value is AdvisorErrorCode {
   return typeof value === 'string' && (ADVISOR_ERROR_CODES as string[]).includes(value)
 }
 
+/* ---------------------------------------------------- 用户可读的失败说明 */
+
+/**
+ * 把适配层错误翻译成一句用户能看懂的话（建议区与聊天区共用同一个入口）。
+ *
+ * 硬约束：**不出现错误码、请求字段名、内部值或服务端原始 message**——
+ * 那些内容只写 console 日志给开发者看，绝不直接展示给学生。
+ * 界面需要"原因"这类短语时用短句，需要完整提示时直接用它。
+ */
+export function describeAdvisorFailure(error: {
+  code: AdvisorApiError['code']
+  cause?: AdvisorErrorCause
+}): string {
+  // 传输层原因更贴近用户实际感受，优先按它说
+  const byCause: Partial<Record<AdvisorErrorCause, string>> = {
+    timeout: '响应太慢，请稍后重试',
+    network: '连不上后端服务，请检查网络后重试',
+    'invalid-json': '服务端返回的内容无法识别，请稍后重试',
+    'invalid-response': '服务端返回的内容无法识别，请稍后重试',
+    'stale-response': '这次回答已经过期，已忽略',
+    aborted: '这次请求已取消',
+  }
+  if (error.cause !== undefined) {
+    const byCauseText = byCause[error.cause]
+    if (byCauseText !== undefined) return byCauseText
+  }
+
+  const byCode: Partial<Record<AdvisorApiError['code'], string>> = {
+    INVALID_INPUT: '当前项目内容还不足以生成回答，先补充材料或提交一条进展',
+    RATE_LIMITED: '请求有点频繁，稍等一会儿再试',
+    MODEL_TIMEOUT: '模型响应超时，请稍后重试',
+    INVALID_MODEL_OUTPUT: '模型这次返回的内容不可用，请重试',
+    MODEL_UNAVAILABLE: '模型服务暂时不可用，请稍后重试',
+    MODEL_NOT_CONFIGURED: '服务端还没接入模型，暂时只能用系统规则参考',
+    INTERNAL: '服务端开小差了，请稍后重试',
+    STALE_REVISION: '项目状态刚更新过，请重新获取',
+    UNAUTHORIZED: '服务端没有通过这次校验',
+    NETWORK_ERROR: '连不上后端服务，请检查网络后重试',
+  }
+  return byCode[error.code] ?? '这次没能拿到结果，请稍后重试'
+}
+
 /* --------------------------------------------------------------- local-rule */
 
 /**

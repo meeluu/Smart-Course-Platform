@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { Project } from '@/types/platform'
 import { CHINESE_NUM } from '@/stores/workbench'
-import { taskStatusText } from '@/domain/progress'
+import { milestoneStatusText, taskStatusText } from '@/domain/progress'
 
 /**
  * 项目地图
@@ -12,10 +12,10 @@ import { taskStatusText } from '@/domain/progress'
  */
 const props = defineProps<{ project: Project }>()
 
-const COLORS: Record<string, { fill: string; stroke: string; t: string; s: string; line: string; label: string }> = {
-  done: { fill: '#E1F5EE', stroke: '#5DCAA5', t: '#085041', s: '#0F6E56', line: '#5DCAA5', label: '已完成' },
-  cur: { fill: '#E6F1FB', stroke: '#85B7EB', t: '#0C447C', s: '#185FA5', line: '#85B7EB', label: '进行中' },
-  todo: { fill: '#f8f7f4', stroke: '#d3d1c7', t: '#888780', s: '#b4b2a9', line: '#d3d1c7', label: '未开始' },
+const COLORS: Record<string, { fill: string; stroke: string; t: string; s: string; line: string }> = {
+  done: { fill: '#E1F5EE', stroke: '#5DCAA5', t: '#085041', s: '#0F6E56', line: '#5DCAA5' },
+  cur: { fill: '#E6F1FB', stroke: '#85B7EB', t: '#0C447C', s: '#185FA5', line: '#85B7EB' },
+  todo: { fill: '#f8f7f4', stroke: '#d3d1c7', t: '#888780', s: '#b4b2a9', line: '#d3d1c7' },
 }
 
 const svg = computed(() => {
@@ -55,13 +55,13 @@ const svg = computed(() => {
     `<text x="${cx + cw / 2}" y="${cy + 27}" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">${esc(p.short)}</text>` +
     `<text x="${cx + cw / 2}" y="${cy + 46}" text-anchor="middle" font-size="11" fill="#B5D4F4">${esc(p.group)}</text>`
 
-  // 左侧里程碑
+  // 左侧里程碑：状态文案复用 domain 的说法（已完成 / 进行中 / 未开始）
   p.ms.forEach((m, i) => {
     const c = COLORS[m.s]
     out +=
       `<rect x="${msX}" y="${msYs[i]}" width="${msW}" height="${msH}" rx="10" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1"/>` +
       `<text x="${msX + msW / 2}" y="${msYs[i] + 23}" text-anchor="middle" font-size="12" font-weight="600" fill="${c.t}">${CHINESE_NUM[i]} ${esc(m.t)}</text>` +
-      `<text x="${msX + msW / 2}" y="${msYs[i] + 40}" text-anchor="middle" font-size="10.5" fill="${c.s}">${c.label}${m.s === 'cur' ? ` ${m.p}%` : ''}</text>`
+      `<text x="${msX + msW / 2}" y="${msYs[i] + 40}" text-anchor="middle" font-size="10.5" fill="${c.s}">${milestoneStatusText(m.s)}${m.s === 'cur' ? ` ${m.p}%` : ''}</text>`
   })
 
   // 右侧当前步骤：显示真实任务状态（进行中 / 已完成 / 未开始），不再只说「建议：待定」

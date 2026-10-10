@@ -68,6 +68,7 @@ import {
   MAX_EVIDENCE_DID_WHAT_LENGTH,
   MAX_EVIDENCE_FOUND_WHAT_LENGTH,
   MAX_EVIDENCE_UNSURE_LENGTH,
+  describeAdvisorFailure,
   localFailure,
 } from '@/domain/recommendation'
 import { loadPersistedState, savePersistedState } from '@/stores/persistence'
@@ -476,7 +477,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       toast('本地存储不可用，材料没有保存')
       return
     }
-    if (type === '实验手册') toast('AI 已解析实验手册，将按手册要求校准里程碑与完成标志')
+    if (type === '实验手册') toast('AI 已解析实验手册，将按手册要求校准里程碑与完成标准')
     else if (type === '数据集') toast('AI 已登记数据集，「数据获取与预处理」阶段将按此追踪')
     else toast('材料已上传，AI 已纳入项目状态')
   }
@@ -757,12 +758,18 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           chatErrorByProject.value = { ...chatErrorByProject.value, [projectId]: '本地存储不可用，回答没有保存，请稍后重试' }
         }
       } else if (result.error.code !== 'STALE_RESPONSE' && result.error.cause !== 'aborted') {
-        const message = result.error.message || '无法连接后端服务，请稍后重试'
-        chatErrorByProject.value = { ...chatErrorByProject.value, [projectId]: message }
+        // 只展示人话原因：错误码、请求字段与服务端原始 message 一律不进界面
+        chatErrorByProject.value = {
+          ...chatErrorByProject.value,
+          [projectId]: describeAdvisorFailure(result.error),
+        }
       }
     } catch {
       if (chatRequest === identity) {
-        chatErrorByProject.value = { ...chatErrorByProject.value, [projectId]: '聊天请求未能完成，请稍后重试' }
+        chatErrorByProject.value = {
+          ...chatErrorByProject.value,
+          [projectId]: describeAdvisorFailure({ code: 'NETWORK_ERROR', cause: 'network' }),
+        }
       }
     } finally {
       if (chatRequest === identity) {

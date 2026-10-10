@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router'
 import AiStatus from '@/components/AiStatus.vue'
 import EvidenceForm from '@/components/EvidenceForm.vue'
 import ProjectCreate from '@/components/ProjectCreate.vue'
-import ProjectMindMap from '@/components/ProjectMindMap.vue'
 import RecommendationList from '@/components/RecommendationList.vue'
 import { CHINESE_NUM, WEEK_LABELS, useWorkbenchStore } from '@/stores/workbench'
 import { deriveDoubtSnapshots, deriveEvidenceSnapshots } from '@/domain/activity'
@@ -19,9 +18,11 @@ import type { Milestone, SuggestedStep, TaskStatus } from '@/types/platform'
  * ----------------------------------------------------------------------------
  * 没有项目时是创建页；有项目时是三栏工作台：
  *   左栏  我的项目 / 项目资料 / 里程碑进度 / 近 4 周活跃度 / 未解决的疑问
- *   中栏  AI 项目顾问（步骤建议）/ 项目地图 / 向顾问提问
+ *   中栏  AI 下一步建议 / AI 项目顾问（真实任务）/ 项目地图入口 / 向顾问提问
  *   右栏  提交步骤证据 / 最近证据
- * 布局与内容与 platform-ui-mockup(3).html 一致。
+ *
+ * 完整项目地图已经挪到独立的「项目地图」页面（/map），
+ * 工作台只留一个入口，避免同一张图在两个地方各画一遍。
  */
 const store = useWorkbenchStore()
 const router = useRouter()
@@ -68,26 +69,29 @@ const weekBars = computed(() => {
  * 六种状态的文案见 docs/contracts.md 5.3；错误一律映射成人话（5.2 要求不显示英文码）。
  */
 
-/** 服务端规则兜底的原因 → 人话 */
+/**
+ * 服务端规则兜底的原因 → 人话（只保留一句短原因，不出现错误码与字段名）。
+ * 完整提示语写在下方的 statusLine 里。
+ */
 const FALLBACK_REASON_TEXT: Record<AdvisorFallbackReason, string> = {
-  MODEL_TIMEOUT: '模型响应超时',
+  MODEL_TIMEOUT: '模型这次响应超时',
   MODEL_UNAVAILABLE: '模型服务暂时不可用',
   MODEL_NOT_CONFIGURED: '服务端还没接入模型',
   INVALID_MODEL_OUTPUT: '模型返回的内容不符合要求',
-  RATE_LIMITED: '请求太频繁',
+  RATE_LIMITED: '请求有点频繁',
 }
 
-/** 错误码 → 人话（含适配层的前端内部码；保留码也先留文案） */
+/** 内部错误码 → 一句人话；用户永远看不到错误码本身 */
 const ERROR_TEXT: Record<string, string> = {
-  INVALID_INPUT: '当前项目数据不符合接口要求',
-  RATE_LIMITED: '请求太频繁，稍等再试',
+  INVALID_INPUT: '当前项目内容还不够',
+  RATE_LIMITED: '请求有点频繁',
   MODEL_TIMEOUT: '模型响应超时',
   INVALID_MODEL_OUTPUT: '模型返回的内容不符合要求',
   MODEL_UNAVAILABLE: '模型服务暂时不可用',
   MODEL_NOT_CONFIGURED: '服务端还没接入模型',
   NETWORK_ERROR: '连不上后端服务',
-  INTERNAL: '服务端内部错误',
-  STALE_REVISION: '项目版本和服务端对不上',
+  INTERNAL: '服务端暂时不可用',
+  STALE_REVISION: '项目状态刚更新过',
   UNAUTHORIZED: '没有通过服务端校验',
 }
 
@@ -116,22 +120,23 @@ const reasonText = computed(() => {
   return '原因未知'
 })
 
+/** 六种状态各自一句提示。失败时只说明"发生了什么 + 下一步怎么办"，不给技术细节 */
 const statusLine = computed(() => {
   switch (store.aiStatus) {
     case 'idle':
       return isBlankProject.value
         ? `${BLANK_PROJECT_NOTE}先补上内容，再点「获取建议」。`
-        : '还没有建议。点一下「获取建议」，AI 会结合项目当前状态、最近证据和未解决的疑问，给出 1～3 条下一步建议。'
+        : '还没有建议。点一下「获取建议」，AI 会结合当前项目的任务、证据和未解决的疑问，给出 1～3 条下一步建议。'
     case 'loading':
-      return '正在分析项目状态…'
+      return '正在结合项目当前状态分析，请稍等…'
     case 'model':
-      return '以下建议由 AI 模型生成。展开「依据」可以看到它引用的是哪条证据或疑问。'
+      return '下面的建议由 AI 结合项目当前状态生成。展开「依据」可以看到它引用了哪条证据或疑问。'
     case 'fallback':
-      return `模型这次没能给出结果，下面是服务端规则生成的建议（原因：${reasonText.value}）。`
+      return `模型暂时没有生成可用建议，正在使用系统规则生成参考建议（原因：${reasonText.value}）。可以点击「重新获取」。`
     case 'local-rule':
-      return `后端这次不可用，下面是本地规则生成的建议（原因：${reasonText.value}）。`
+      return `暂时连不上后端 AI，正在使用本地规则生成参考建议（原因：${reasonText.value}）。可以点击「重新获取」。`
     case 'error':
-      return `建议没有生成出来：${reasonText.value}。可以重试，也可以先按自己的判断推进。`
+      return `模型暂时没有生成可用建议（原因：${reasonText.value}）。可以点击「重新获取」，也可以先按自己的判断推进。`
     default:
       return ''
   }
@@ -149,13 +154,13 @@ const statusTag = computed(() => {
     case 'loading':
       return '分析中'
     case 'model':
-      return 'AI 模型'
+      return 'AI 生成'
     case 'fallback':
-      return '服务端规则'
+      return '系统规则参考'
     case 'local-rule':
-      return '本地规则'
+      return '本地规则参考'
     case 'error':
-      return '生成失败'
+      return '未生成'
     default:
       return ''
   }
@@ -352,12 +357,14 @@ async function send() {
   await scrollChat()
 }
 
-const CHAT_FALLBACK_REASON_TEXT: Record<string, string> = {
-  MODEL_TIMEOUT: '模型响应超时',
-  MODEL_UNAVAILABLE: '模型服务暂时不可用',
-  MODEL_NOT_CONFIGURED: '服务端还没接入模型',
-  INVALID_MODEL_OUTPUT: '模型返回内容不符合要求',
-  RATE_LIMITED: '请求太频繁',
+/**
+ * 聊天回答来自系统规则时，在署名后补一句人话原因。
+ * 与建议区共用同一份文案表，聊天里也不会出现内部错误码。
+ */
+function chatFallbackNote(reason: string | null | undefined): string {
+  if (reason === null || reason === undefined || reason === '') return ''
+  const text = FALLBACK_REASON_TEXT[reason as AdvisorFallbackReason] ?? '系统规则参考'
+  return ` · ${text}`
 }
 
 async function scrollChat() {
@@ -616,7 +623,7 @@ const openDoubts = computed(() =>
                   </span>
                 </div>
                 <div v-if="step.why" class="sc-why"><b>为什么现在做：</b>{{ step.why }}</div>
-                <div v-if="step.done" class="sc-done">完成标志：{{ step.done }}</div>
+                <div v-if="step.done" class="sc-done">完成标准：{{ step.done }}</div>
                 <div class="sc-actions">
                   <button
                     class="btn primary"
@@ -633,25 +640,20 @@ const openDoubts = computed(() =>
           </div>
         </div>
 
-        <!-- 穿插可视化②：项目地图 -->
+        <!-- 项目地图已经独立成页面：工作台只留入口，不重复画同一张图 -->
         <div class="card" style="margin-bottom:14px;">
           <div class="card-h">
             项目地图
             <span
               class="tag"
               style="background:#E6F1FB;color:#185FA5;border:1px solid #B5D4F4;"
-            >{{ project.short }}</span>
+            >独立页面</span>
           </div>
           <div class="card-b">
-            <div v-if="!project.steps.length" class="empty" style="padding:4px 0;">
-              还没有任务。上传材料或提交项目目标后，AI 会生成项目步骤。
+            <div class="card-note">
+              里程碑与任务状态已经挪到「项目地图」页面，避免和工作台重复展示。
             </div>
-            <template v-else>
-              <ProjectMindMap :project="project" />
-              <div style="font-size:12px;color:#888780;text-align:center;margin-top:4px;">
-                左侧为里程碑，右侧为 AI 正在追踪的当前实际步骤 · 绿=已完成，蓝=进行中，灰=未开始
-              </div>
-            </template>
+            <button class="btn primary" @click="router.push('/map')">查看项目地图</button>
           </div>
         </div>
 
@@ -664,17 +666,17 @@ const openDoubts = computed(() =>
           </div>
           <div class="card-b">
             <div class="chat-notice">
-              回答会结合当前项目的任务、证据、疑问和历史对话；上传文件正文不会自动作为已读内容发送。
+              AI 会结合当前项目的任务、证据、疑问和历史对话回答；上传的文件正文不会自动参与回答。
               对话按项目保存在本地。
             </div>
             <div ref="chatLog" class="chat-log">
               <div v-if="!project.chat.length" class="empty" style="padding:4px 0;">
-                还没有对话。把你卡住的地方写下来，AI 项目顾问会结合当前状态回答。
+                还没有对话。把你卡住的地方写下来，AI 会结合当前项目的任务、证据和疑问回答。
               </div>
               <div v-for="(msg, i) in project.chat" :key="i" class="msg" :class="{ me: msg.me }">
                 <div>
                   <div class="who" :style="msg.me ? 'text-align:right;' : ''">
-                    {{ msg.who }}<span v-if="msg.source === 'fallback' && msg.fallbackReason"> · {{ CHAT_FALLBACK_REASON_TEXT[msg.fallbackReason] ?? '服务端兜底' }}</span>
+                    {{ msg.who }}<span v-if="msg.source === 'fallback' && msg.fallbackReason">{{ chatFallbackNote(msg.fallbackReason) }}</span>
                   </div>
                   <div class="bubble">{{ msg.text }}</div>
                 </div>

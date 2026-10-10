@@ -118,7 +118,7 @@ function buildDoingSuggestion(tasks: TaskSnapshot[], evidence: EvidenceSnapshot[
   return {
     title: `先把进行中的任务收尾：${task.title}`,
     whyNow: `「${task.title}」正在进行中${scopeHint}；先把它收尾，后面的步骤才有稳定的前提。`,
-    doneCriteria: task.doneCriteria ?? '补齐这一步的完成标志，并提交一条证据',
+    doneCriteria: task.doneCriteria ?? '补齐这一步的完成标准，并提交一条证据',
     existingTaskId: task.taskId,
     basisEvidenceIds: latestEvidenceIdOfTask(evidence, task.taskId),
     basisDoubtIds: [],

@@ -280,3 +280,13 @@ export function taskStatusText(status: Task['status'] | undefined): string {
   if (status === 'done') return '已完成'
   return '未开始'
 }
+
+/**
+ * 里程碑状态 → 界面上的人话。
+ * 注意里程碑用的是 `cur`（进行中），与任务的 `doing` 不同，不能复用 taskStatusText。
+ */
+export function milestoneStatusText(status: Project['ms'][number]['s'] | undefined): string {
+  if (status === 'done') return '已完成'
+  if (status === 'cur') return '进行中'
+  return '未开始'
+}
