@@ -42,6 +42,60 @@ const mocked = vi.hoisted(() => ({
     }>,
     evidence: [] as Array<{ evidenceId: string; status: 'active' | 'redacted'; milestoneId: string | null; taskId: string | null; didWhat: string; foundWhat: string; createdAt: string }>,
     progress: [] as Array<{ progressId: string; status: 'active' | 'superseded'; milestoneId: string | null; taskId: string | null; summary: string; occurredAt: string }>,
+    materials: [] as Array<{
+      materialId: string
+      name: string
+      materialVersion: number
+      type: 'md' | 'txt'
+      status: 'parsed'
+      isCurrent: boolean
+      readOnly: boolean
+      size: number
+      encoding: string
+      createdAt: string
+      updatedAt: string
+    }>,
+    materialsHydrated: true,
+    materialsStatus: 'ready' as 'idle' | 'loading' | 'ready' | 'error',
+    materialsError: null as { message: string } | null,
+    materialReadError: null as { message: string } | null,
+    refreshMaterials: vi.fn(),
+    loadMaterialSegments: vi.fn(),
+    loadMaterialUnderstanding: vi.fn(),
+    cachedSegments: vi.fn((): unknown[] | null => null),
+    cachedUnderstanding: vi.fn((): Array<{ status: string }> | null => null),
+    isMaterialReadLoading: vi.fn((): boolean => false),
+    uploadMaterial: vi.fn(),
+    materialUpload: {
+      status: 'idle',
+      error: null as { message: string } | null,
+      lastUpload: null as { deduplicated: boolean; segmentCount: number } | null,
+    },
+    advisor: null as null | {
+      status: 'idle' | 'loading' | 'ready' | 'error'
+      source: 'model' | 'fallback' | 'local-rule' | null
+      fallbackReason: string | null
+      error: { message: string } | null
+      suggestions: Array<{ id: string; title: string; whyNow: string; doneCriteria: string }>
+    },
+    buildAdvisorContext: vi.fn(),
+    refreshAdvisor: vi.fn(),
+    chat: null as null | {
+      status: 'idle' | 'loading' | 'ready' | 'error'
+      messages: Array<{
+        clientId: string
+        role: 'user' | 'assistant'
+        text: string
+        source: 'model' | 'fallback' | null
+        createdAt: string
+        citations: Array<{ materialName: string; segmentId: string; startLine: number; endLine: number }>
+      }>
+      error: { message: string } | null
+      pendingQuestion: string | null
+    },
+    sendChat: vi.fn(),
+    retryChat: vi.fn(),
+    clearChat: vi.fn(),
     currentMilestoneId: 'milestone-1' as string | null,
     tasksHydrated: true,
     busy: false,
@@ -117,6 +171,26 @@ describe('CloudProjectWorkbench', () => {
   beforeEach(() => {
     resetState()
     mocked.cloud.isActionLoading = vi.fn(() => false)
+    mocked.cloud.materials = []
+    mocked.cloud.materialsHydrated = true
+    mocked.cloud.materialsStatus = 'ready'
+    mocked.cloud.materialsError = null
+    mocked.cloud.materialReadError = null
+    mocked.cloud.refreshMaterials = vi.fn(async () => ({ ok: true, data: [] }))
+    mocked.cloud.loadMaterialSegments = vi.fn(async () => ({ ok: true, data: [] }))
+    mocked.cloud.loadMaterialUnderstanding = vi.fn(async () => ({ ok: true, data: [] }))
+    mocked.cloud.cachedSegments = vi.fn((): unknown[] | null => null)
+    mocked.cloud.cachedUnderstanding = vi.fn((): Array<{ status: string }> | null => null)
+    mocked.cloud.isMaterialReadLoading = vi.fn((): boolean => false)
+    mocked.cloud.uploadMaterial = vi.fn()
+    mocked.cloud.materialUpload = { status: 'idle', error: null, lastUpload: null }
+    mocked.cloud.advisor = null
+    mocked.cloud.buildAdvisorContext = vi.fn(() => ({ ok: true, data: {} }))
+    mocked.cloud.refreshAdvisor = vi.fn(async () => ({ ok: true, data: null }))
+    mocked.cloud.chat = null
+    mocked.cloud.sendChat = vi.fn(async () => ({ ok: false, message: '聊天服务暂不可用' }))
+    mocked.cloud.retryChat = vi.fn(async () => ({ ok: false, message: '仍然失败' }))
+    mocked.cloud.clearChat = vi.fn()
   })
 
   it('切换查看阶段后只展示所选阶段的任务', async () => {
@@ -177,7 +251,7 @@ describe('CloudProjectWorkbench', () => {
     host.remove()
   })
 
-  it('切换标签页不卸载表单，输入不会丢失；项目资料页说明尚未接入', async () => {
+  it('切换标签页不卸载表单，输入不会丢失；项目资料页显示材料空态', async () => {
     const wrapper = mount(CloudProjectWorkbench)
 
     await wrapper.get('input[aria-label="阶段名称"]').setValue('未提交的阶段草稿')
@@ -188,7 +262,7 @@ describe('CloudProjectWorkbench', () => {
     await tabs[1]?.trigger('click')
 
     expect(wrapper.get('#cloud-panel-data').isVisible()).toBe(true)
-    expect(wrapper.get('#cloud-panel-data').text()).toContain('云端材料列表还没有接入本页')
+    expect(wrapper.get('#cloud-panel-data').text()).toContain('还没有材料，上传一份 md 或 txt 开始')
     expect((wrapper.get('input[aria-label="阶段名称"]').element as HTMLInputElement).value).toBe('未提交的阶段草稿')
 
     await tabs[0]?.trigger('click')
@@ -243,5 +317,86 @@ describe('CloudProjectWorkbench', () => {
       milestoneId: 'milestone-1',
       expectedRevision: undefined,
     })
+  })
+
+  it('材料区区分空态与失败态，失败时不显示空列表', async () => {
+    const wrapper = mount(CloudProjectWorkbench)
+    await wrapper.findAll('[role="tab"]')[1]?.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.get('#cloud-panel-data').text()).toContain('还没有材料，上传一份 md 或 txt 开始')
+    })
+    expect(wrapper.get('#cloud-panel-data').find('.empty').exists()).toBe(true)
+    wrapper.unmount()
+
+    mocked.cloud.materialsHydrated = false
+    mocked.cloud.materialsStatus = 'error'
+    mocked.cloud.materialsError = { message: '材料服务暂时不可用' }
+    mocked.cloud.refreshMaterials = vi.fn(async () => ({ ok: false, message: '材料服务暂时不可用' }))
+
+    const failed = mount(CloudProjectWorkbench)
+    await failed.findAll('[role="tab"]')[1]?.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(failed.get('#cloud-panel-data').text()).toContain('材料服务暂时不可用')
+    })
+    expect(failed.get('#cloud-panel-data').find('.empty').exists()).toBe(false)
+  })
+
+  it('AI 建议 fallback 显示服务端规则兜底和原因，不出现空白卡片', async () => {
+    mocked.cloud.advisor = {
+      status: 'ready',
+      source: 'fallback',
+      fallbackReason: 'MODEL_TIMEOUT',
+      error: null,
+      suggestions: [
+        {
+          id: 'suggestion-1',
+          title: '补齐字段口径说明',
+          whyNow: '当前阶段的完成标准要求确认字段口径。',
+          doneCriteria: '写出一页字段说明并标注缺失率。',
+        },
+      ],
+    }
+
+    const wrapper = mount(CloudProjectWorkbench)
+    await wrapper.get('.cloud-ai .ai-actions button').trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.get('.cloud-ai').text()).toContain('服务端规则兜底（fallback）')
+    })
+    expect(wrapper.get('.cloud-ai').text()).toContain('模型调用超时，已使用服务端规则建议。')
+    expect(wrapper.get('.cloud-ai').text()).toContain('补齐字段口径说明')
+    expect(wrapper.get('.cloud-ai').text()).toContain('写出一页字段说明并标注缺失率。')
+    expect(wrapper.get('.cloud-ai').findAll('.ai-suggestion')).toHaveLength(1)
+    expect(wrapper.get('.cloud-ai').find('.cloud-error').exists()).toBe(false)
+  })
+
+  it('聊天发送失败时保留问题并允许重试', async () => {
+    mocked.cloud.chat = {
+      status: 'idle',
+      messages: [],
+      error: null,
+      pendingQuestion: null,
+    }
+    mocked.cloud.sendChat = vi.fn(async ({ question }: { question: string }) => {
+      if (mocked.cloud.chat) mocked.cloud.chat.pendingQuestion = question
+      return { ok: false, message: '聊天服务暂时不可用' }
+    })
+
+    const wrapper = mount(CloudProjectWorkbench)
+    const textarea = wrapper.get('.chat-form textarea')
+    await textarea.setValue('下一步应该做什么？')
+    await wrapper.get('.chat-form').trigger('submit')
+
+    await vi.waitFor(() => {
+      expect(wrapper.get('.cloud-chat').text()).toContain('聊天服务暂时不可用')
+    })
+    expect((wrapper.get('.chat-form textarea').element as HTMLTextAreaElement).value).toBe('下一步应该做什么？')
+
+    const retry = wrapper.findAll('.cloud-chat button').find((button) => button.text() === '重试')
+    expect(retry).toBeTruthy()
+    await retry?.trigger('click')
+    expect(mocked.cloud.retryChat).toHaveBeenCalledTimes(1)
   })
 })
