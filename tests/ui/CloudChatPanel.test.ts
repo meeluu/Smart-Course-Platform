@@ -24,6 +24,8 @@ const mocked = vi.hoisted(() => ({
     },
     sendChat: vi.fn(async () => ({ ok: true, data: {} })),
     retryChat: vi.fn(async () => ({ ok: true, data: {} })),
+    // V5 PR #47 起对外导出：历史拉取失败可就地重试，不必让用户刷新页面
+    loadChatHistory: vi.fn(async () => ({ ok: true, data: [] })),
     clearChat: vi.fn(),
   },
 }))
@@ -67,6 +69,7 @@ describe('CloudChatPanel', () => {
     setChat({})
     mocked.cloud.sendChat.mockResolvedValue({ ok: true, data: {} })
     mocked.cloud.retryChat.mockResolvedValue({ ok: true, data: {} })
+    mocked.cloud.loadChatHistory.mockResolvedValue({ ok: true, data: [] })
   })
 
   it('空会话给出可问的问题；没连上会话时不宣称已保存', () => {
@@ -103,6 +106,26 @@ describe('CloudChatPanel', () => {
     expect(wrapper.text()).toContain('这次会话里刚问的问题')
     // 不能把失败说成「没有对话」
     expect(wrapper.text()).not.toContain('还没有对话')
+    // 也不该再把「刷新页面」当唯一出路
+    expect(wrapper.text()).not.toContain('刷新页面会再试一次')
+  })
+
+  it('历史没拉到时点「重试」就地补拉，不重发最后一条提问', async () => {
+    setChat({
+      sessionId: null,
+      historyStatus: 'error',
+      historyError: { code: 'NETWORK_ERROR', message: '连不上后端服务' },
+    })
+
+    const wrapper = mount(CloudChatPanel)
+    const button = wrapper.get('.chat-history-notice button')
+    expect(button.text()).toBe('重试')
+
+    await button.trigger('click')
+
+    expect(mocked.cloud.loadChatHistory).toHaveBeenCalledTimes(1)
+    // 重发提问是另一个「重试」按钮的事，不能被顺带触发
+    expect(mocked.cloud.retryChat).not.toHaveBeenCalled()
   })
 
   it('历史消息没有来源字段时标「历史记录」，不冒充 AI 模型回答', () => {

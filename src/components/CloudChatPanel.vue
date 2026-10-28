@@ -109,6 +109,19 @@ async function retry(): Promise<void> {
   await scrollToBottom()
 }
 
+/**
+ * 历史拉到一半失败时就地重试。
+ *
+ * 这里不复用上面那个 `retry()`：它重发的是**最后一条提问**，与「补拉历史」是两件事，
+ * 混在一起会让学生以为点一下会把问题再问一遍。
+ * `loadChatHistory` 自己会把 historyStatus 置为 loading，界面据此显示「恢复中…」。
+ */
+async function retryHistory(): Promise<void> {
+  if (historyLoading.value) return
+  await cloud.loadChatHistory()
+  await scrollToBottom()
+}
+
 function clear(): void {
   cloud.clearChat()
   question.value = ''
@@ -151,9 +164,12 @@ function clear(): void {
       <div v-if="historyFailed" class="notice notice-warn chat-history-notice" role="status">
         <div class="notice-text">
           <b>历史记录暂时没拉到。</b><br />
-          下面只是这次打开后的对话，不代表以前没聊过。刷新页面会再试一次；
+          下面只是这次打开后的对话，不代表以前没聊过。可以点右边再试一次；
           现在提问不会丢，回答照常显示。
         </div>
+        <button class="btn" type="button" :disabled="historyLoading" @click="retryHistory">
+          {{ historyLoading ? '恢复中…' : '重试' }}
+        </button>
       </div>
       <p v-else-if="historyLoading && messages.length === 0" class="hint">正在恢复之前的对话…</p>
 
