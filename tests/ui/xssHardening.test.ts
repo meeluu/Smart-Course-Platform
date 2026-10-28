@@ -37,7 +37,7 @@ afterEach(() => {
 })
 
 describe('v-html 渲染面：用户输入必须转义', () => {
-  it('论文推荐 banner 不把项目短名渲染成 HTML 元素', () => {
+  it('论文推荐 banner 不把项目名渲染成 HTML 元素', () => {
     const store = freshStore()
     createProject(store, PAYLOAD)
     const project = store.current
@@ -46,13 +46,14 @@ describe('v-html 渲染面：用户输入必须转义', () => {
     const wrapper = mount(PapersView)
     const html = wrapper.find('.mode-banner').html()
 
-    // 尖括号必须被转义：否则 <img ...> 会成为真实元素
+    // 尖括号必须被转义：否则 <img ...> 会成为真实元素。
+    // 注意：文本节点里的引号不需要转义（也不会被打断），所以断言看的是「有没有变成元素 /
+    // 有没有挂上事件处理器」，而不是字面量 onerror= 是否出现。
     expect(html).not.toContain('<img')
-    expect(html).not.toContain('onerror=')
     expect(html).toContain('&lt;img')
     expect(wrapper.find('.mode-banner img').exists()).toBe(false)
     // 文本内容原样保留（含引号），只是不再被当作 HTML 解析
-    expect(wrapper.find('.mode-banner').text()).toContain(project.short)
+    expect(wrapper.find('.mode-banner').text()).toContain(project.name)
     wrapper.unmount()
   })
 

@@ -4,7 +4,7 @@ import type { AiPaperDirection, PaperDirection } from '@/types/platform'
 /**
  * 论文推荐的数据来源 —— 全平台唯一的出口
  * ----------------------------------------------------------------------------
- * 页面（PapersView / PaperDirectionCard）只认 PaperDirection 这个形状，
+ * 页面（本地项目的「预置检索方向」）只认 PaperDirection 这个形状，
  * 不关心它从哪来。所以「换数据来源」只需要改这一个文件：
  *
  *   现在：① 取题目模板里预置的方向（9 套 × 3 条 = 27 条）
@@ -34,19 +34,19 @@ export function genericDirections(projectName: string): PaperDirection[] {
   return [
     {
       title: '该方向的方法综述',
-      meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+      meta: '本地规则生成的检索方向 · 用提示词到 GPT 检索',
       why: '先看综述建立全局图景。',
       prompt: `请检索「${projectName}」相关方向的近年综述与代表论文：1) 主流方法分类与优缺点 2) 常用数据集 3) 开源实现。列出 5-8 篇及出处。`,
     },
     {
       title: '该方向的数据获取与预处理',
-      meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+      meta: '本地规则生成的检索方向 · 用提示词到 GPT 检索',
       why: '为数据里程碑储备。',
       prompt: `请介绍「${projectName}」项目常用的数据来源、格式与预处理工具链（Python），并说明常见的数据质量问题和处理方法。`,
     },
     {
       title: '该方向的最新研究进展（2023-2025）',
-      meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+      meta: '本地规则生成的检索方向 · 用提示词到 GPT 检索',
       why: '了解前沿，避免方案过时。',
       prompt: `请检索 2023-2025 年「${projectName}」方向的最新研究进展：1) 新方法与突破 2) 尚未解决的问题 3) 代表性团队。请附出处。`,
     },

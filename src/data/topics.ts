@@ -72,21 +72,21 @@ export const TEMPLATES: Record<string, Template> = {
     papers: [
       {
         title: '海洋锋面自动识别方法综述（梯度法 / 直方图法 / 深度学习）',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '这是你们文献调研的主线，先看综述建立全局图景，再挑具体方法深读。',
         prompt:
           '请检索近 5 年 ocean front detection from satellite SST/SSH data 的综述与代表论文：1) 梯度法、直方图法、深度学习分割各自的原理与优缺点 2) 各自的代表文献 3) 开源实现与公开数据集。列出 5-8 篇及出处。',
       },
       {
         title: '海洋锋面与渔场关系的研究现状',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '项目最终要落到「面向渔场预测」，调研阶段就要搞清楚锋面-渔场关联分析有哪些成熟做法。',
         prompt:
           '请检索 ocean fronts 与 fishery grounds prediction 相关研究：1) 锋面强度与渔场分布的关联分析方法 2) 东海/西北太平洋的案例 3) 常用渔获或渔场代理数据。列出 5 篇左右及出处。',
       },
       {
         title: 'SST / SSH 卫星数据的获取与预处理入门',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '为下一个里程碑「数据获取与预处理」提前储备。',
         prompt:
           '请介绍海表温度（SST）和海面高度（SSH）卫星数据的主要获取平台：1) 各平台数据分辨率与覆盖 2) NetCDF 格式的读取与预处理工具（Python）3) 云掩膜与质量控制的基本做法。',
@@ -137,14 +137,14 @@ export const TEMPLATES: Record<string, Template> = {
       },
       {
         title: '渔场预测模型：从统计方法到机器学习',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '建立建模路线的全局认识，帮你们选型。',
         prompt:
           '请检索 fishing ground forecasting / fishery prediction models：1) 统计方法（GAM）与机器学习的效果对比 2) 常用环境因子 3) 中小尺度渔场的适用方法。列出 5 篇左右及出处。',
       },
       {
         title: '可解释机器学习（SHAP 等）在生态与渔业预测中的应用',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '项目明确要求「解释」，调研期就要确认解释方法的成熟度和坑。',
         prompt:
           '请检索 SHAP / interpretable machine learning 在 species distribution modeling 或 fishery forecasting 中的应用：1) 常用解释框架 2) 环境因子贡献度解读 3) 已知局限。列出 3-5 篇及出处。',
@@ -187,21 +187,21 @@ export const TEMPLATES: Record<string, Template> = {
     papers: [
       {
         title: '卫星叶绿素数据重建方法：DINEOF 与机器学习对比',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '云遮挡重建是第一道工序，先了解各方法对比再选型。',
         prompt:
           '请检索 satellite chlorophyll-a data reconstruction / gap filling 方法：1) DINEOF 的原理与适用条件 2) 机器学习重建方法对比 3) 近岸浑浊水域的局限。列出 5 篇左右及出处。',
       },
       {
         title: '中国近海叶绿素多尺度变化研究',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '直接参考同类研究怎么定义「多尺度」、用什么分解方法。',
         prompt:
           '请检索中国近海表层叶绿素多时间尺度变化研究：1) 尺度划分方式（季节/年际/趋势）2) 分解方法（STL/EEMD/小波）3) 驱动因子结论。列出 5 篇及出处。',
       },
       {
         title: 'MODIS / VIIRS 水色数据获取与处理入门',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '为数据获取里程碑储备。',
         prompt:
           '请介绍 MODIS-Aqua 与 VIIRS 叶绿素数据产品：1) L2/L3 产品区别与获取平台 2) 数据格式与读取（Python）3) 常用质量控制标记。',
@@ -244,21 +244,21 @@ export const TEMPLATES: Record<string, Template> = {
     papers: [
       {
         title: 'DARPA SUBOFF 标准算例与潜艇水动力验证',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '你们的几何方案和验证基准都绕不开这个国际标准算例。',
         prompt:
           '请检索 DARPA SUBOFF submarine benchmark 相关资料：1) 几何参数与实验数据来源 2) 常用 CFD 验证指标 3) 湍流模型对比结论。请附出处。',
       },
       {
         title: '水下航行器 CFD 仿真入门：湍流模型与网格策略',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '为搭建仿真环境储备基础知识。',
         prompt:
           '请检索 underwater vehicle CFD simulation 的入门与最佳实践：1) k-ε / k-ω SST 在水下低速工况的选择 2) y+ 控制与边界层网格 3) 网格无关性验证标准。',
       },
       {
         title: '深潜救生艇的流体力学特点与操纵性',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '救生艇工况特殊（低速、悬停、对接），明确仿真要回答什么问题。',
         prompt:
           '请检索 deep submergence rescue vehicle hydrodynamics / maneuvering 研究：1) 典型工况 2) 水动力分析重点 3) 与常规潜艇的差异。',
@@ -301,21 +301,21 @@ export const TEMPLATES: Record<string, Template> = {
     papers: [
       {
         title: '人机协同科学发现：Human-in-the-loop 方法框架',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '项目的理论核心：人机分工与交互闭环设计。',
         prompt:
           '请检索 human-in-the-loop machine learning for scientific discovery（海洋学/地球系统科学）：1) 人机分工典型模式 2) 主动学习在异常发现中的应用 3) 代表性系统架构。列出 5 篇左右及出处。',
       },
       {
         title: '大数据科学发现系统案例：从 SDSS 到海洋数据平台',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '参考成熟的数据驱动发现平台的架构和交互设计。',
         prompt:
           '请检索 data-driven discovery platforms in astronomy (SDSS SciServer) and oceanography：1) 系统架构 2) 支持交互式探索的技术 3) 促成科学发现的典型案例。',
       },
       {
         title: 'PB 级数据的交互式分析技术',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '为「交互式」体验储备技术选型。',
         prompt:
           '请检索 interactive analytics over large-scale scientific data：1) 预聚合/数据立方体 2) 近似查询处理（AQP）3) DuckDB/ClickHouse 等现代引擎的应用。',
@@ -357,21 +357,21 @@ export const TEMPLATES: Record<string, Template> = {
     papers: [
       {
         title: 'LLM 智能导学系统：引导而不代劳的对话策略',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: 'AI 项目顾问本质是导学代理，先看教育技术领域怎么设计脚手架式引导。',
         prompt:
           '请检索 2023-2025 年 LLM-based tutoring agents 研究：1) 引导式提问的提示策略 2) 项目式学习中的 AI 脚手架 3) 防止学生过度依赖的机制。列出 5 篇左右及出处。',
       },
       {
         title: '结构化输出：让 LLM 稳定生成固定格式推荐',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '「只给 1-3 步并说明理由」需要格式硬约束。',
         prompt:
           '请检索 LLM structured output / format-constrained generation 方法：1) JSON mode 与 schema 约束 2) few-shot 对格式稳定性的影响 3) 输出校验与重试机制。',
       },
       {
         title: '项目式学习（PBL）中的过程性评价与学习分析',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '证据四要素和过程留痕的设计要有教育测量依据。',
         prompt:
           '请检索 project-based learning analytics / process-oriented assessment 研究：1) 过程性数据的采集维度 2) 基于过程证据的评价方法 3) 小组协作中的贡献度分析。',
@@ -414,21 +414,21 @@ export const TEMPLATES: Record<string, Template> = {
     papers: [
       {
         title: '多 AUV 协同感知与任务分配综述',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '先看综述建立全局图景。',
         prompt:
           '请检索 multi-AUV cooperative perception and task allocation 综述：1) 集中式与分布式协同框架 2) 任务分配算法对比 3) 异构平台能力建模方式。列出 5 篇左右及出处。',
       },
       {
         title: '水下多模态感知：声呐与视觉融合',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '「多模态空间感知」的技术主线。',
         prompt:
           '请检索 underwater sonar-camera / multi-modal perception fusion：1) 特征级与决策级融合方法 2) 时间同步与标定问题 3) 仿真数据生成方法。',
       },
       {
         title: '水下机器人仿真平台对比',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '直接服务于仿真平台选型决策。',
         prompt:
           '请对比 underwater robotics simulators（UWSim, Gazebo+UUV Plugin, HoloOcean, Stonefish）：1) 多机器人与多传感器支持 2) 与 ROS 的集成 3) 学习曲线与社区活跃度。',
@@ -479,14 +479,14 @@ export const TEMPLATES: Record<string, Template> = {
       },
       {
         title: '高温-缺氧-酸化复合极端事件：共现机制与识别方法',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '项目的核心文献方向：三因子共现的物理机制与识别框架。',
         prompt:
           '请检索 compound marine extreme events（marine heatwave + deoxygenation + ocean acidification）：1) 三因子共现的定义与识别方法 2) 驱动机制 3) 代表性区域研究。列出 5 篇左右及出处。',
       },
       {
         title: 'Argo / 卫星 / 再分析数据的获取与质量对比',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '为数据摸底提供指引。',
         prompt:
           '请介绍海洋温度/溶解氧/pH 数据的主要公开来源：1) Argo 浮标（含 BGC-Argo）2) 卫星遥感的可测因子与局限 3) 再分析产品的变量与分辨率。',
@@ -529,21 +529,21 @@ export const TEMPLATES: Record<string, Template> = {
     papers: [
       {
         title: '极端风浪事件的气候学分析方法',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '建立方法论基础：极值理论、事件定义、强度-频次分析的标准做法。',
         prompt:
           '请检索 extreme wind and wave events climatology：1) 极值定义方法（百分位阈值、GEV、POT）2) 事件的持续/间隔规则 3) 基于 ERA5 的研究案例。列出 5 篇左右及出处。',
       },
       {
         title: 'ERA5 再分析数据在风浪研究中的应用与局限',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: 'ERA5 是主力数据，先了解它在极端事件上的精度表现和已知偏差。',
         prompt:
           '请检索 ERA5 reanalysis for wind and wave extremes validation：1) ERA5 与浮标观测的对比结论 2) 极端值低估问题 3) 使用注意事项。',
       },
       {
         title: '风浪灾害预警：机器学习方法的最新应用',
-        meta: 'AI 推荐检索方向 · 用提示词到 GPT 检索',
+        meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
         why: '为「智能分析」储备：ML 在风浪预警中的应用方式与效果边界。',
         prompt:
           '请检索 machine learning for wave / storm warning：1) 常用模型与输入特征 2) 预警提前量与准确率的权衡 3) 业务化应用案例。列出 5 篇左右及出处。',
