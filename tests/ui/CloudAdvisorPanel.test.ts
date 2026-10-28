@@ -78,7 +78,7 @@ describe('CloudAdvisorPanel', () => {
     })
     expect(wrapper.text()).toContain('当前阶段完成标准要求确认字段口径。')
     expect(wrapper.text()).toContain('写出一页字段说明并标注缺失率。')
-    expect(wrapper.text()).toContain('模型生成（model）')
+    expect(wrapper.text()).toContain('AI 模型生成')
     expect(mocked.cloud.buildAdvisorContext).toHaveBeenCalledTimes(1)
     expect(mocked.cloud.refreshAdvisor).toHaveBeenCalledWith({ forceRefresh: true })
   })
@@ -107,7 +107,7 @@ describe('CloudAdvisorPanel', () => {
     await wrapper.get('.advisor-actions button').trigger('click')
 
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('服务端规则兜底（fallback）')
+      expect(wrapper.text()).toContain('服务端规则回答')
     })
     expect(wrapper.text()).toContain('模型响应超时，本次建议由服务端规则生成。')
     expect(wrapper.text()).toContain('先补齐样例数据说明')

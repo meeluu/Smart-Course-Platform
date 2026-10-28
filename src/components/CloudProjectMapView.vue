@@ -35,7 +35,7 @@ function statusText(status: TaskStatus): string {
     </div>
   </div>
   <template v-else>
-    <div class="mode-banner"><b>云端项目地图</b> 展示服务端已确认的阶段、任务和统计；任务读取失败时不会伪装为空项目。</div>
+    <div class="mode-banner"><b>项目地图</b> 把当前项目的阶段、任务和完成度摊在一张图上看；还没读出来的部分会如实标出，不会画成「没有」。</div>
     <div class="card map-head">
       <div class="card-h">{{ project.name }} <span class="tag" style="background:#E6F1FB;color:#185FA5;border:1px solid #B5D4F4;">{{ stats.progress }}% 完成</span></div>
       <div class="card-b"><p>{{ project.profile.goal || '还没有填写项目目标' }}</p><p class="map-note">{{ stats.done }}/{{ stats.total }} 个任务已完成 · {{ milestones.length }} 个阶段</p></div>
@@ -43,7 +43,7 @@ function statusText(status: TaskStatus): string {
     <div class="card map-body">
       <div class="card-h">项目地图</div>
       <div class="card-b">
-        <div v-if="!cloud.tasksHydrated" class="empty">任务列表尚未成功读取，暂不展示地图任务。</div>
+        <div v-if="!cloud.tasksHydrated" class="empty">任务还没读出来，先不画任务节点；回工作台刷新后重试即可。</div>
         <ProjectMindMap v-else :project="project" />
       </div>
     </div>
@@ -55,7 +55,7 @@ function statusText(status: TaskStatus): string {
             <strong>{{ milestone.name }}</strong><span class="tag">{{ milestone.taskStats.done }}/{{ milestone.taskStats.total }} · {{ milestone.taskStats.progress }}%</span>
             <p>{{ milestone.goal || '暂未填写阶段目标' }}</p>
           </div>
-          <p v-if="!milestones.length" class="empty">还没有阶段，请回到工作台创建。</p>
+          <p v-if="!milestones.length" class="empty">还没有阶段。回工作台在「阶段管理」里建第一个。</p>
         </div>
       </div>
       <div class="card">
@@ -65,7 +65,7 @@ function statusText(status: TaskStatus): string {
             <div class="map-task-top"><strong>{{ task.title }}</strong><span class="tag" :style="statusStyle[task.status]">{{ statusText(task.status) }}</span></div>
             <p v-if="task.doneCriteria">完成标准：{{ task.doneCriteria }}</p>
           </div>
-          <p v-if="cloud.tasksHydrated && !tasks.length" class="empty">还没有任务。</p>
+          <p v-if="cloud.tasksHydrated && !tasks.length" class="empty">还没有任务。回工作台把阶段拆成几次工作能做完的小事。</p>
         </div>
       </div>
     </div>

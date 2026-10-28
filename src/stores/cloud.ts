@@ -16,8 +16,9 @@
  *   - 时间线（22.11）没有路由：`loadTimeline()` 恒返回 TIMELINE_NOT_AVAILABLE；
  *   - 建议/聊天已支持 v3（`mvp-prompt-v3` / `advisor-chat-v3` + `milestoneContext`），服务端按
  *     projectId 做归属校验：云端项目**始终**发 v3，来源判定见 `supportsMilestoneContext()`；
- *   - 聊天仍是无状态接口（`POST /api/advisor/chat`，不落库）：`sendChat` 只维持本次会话内存消息，
- *     没有会话/消息读取端点，因此不做「云端历史会话」，也不把内存消息标成已持久化。
+ *   - 聊天仍是无状态写接口（`POST /api/advisor/chat`），但 V5 起会话与消息会落库：
+ *     进入项目时 `loadChatHistory()` 恢复历史，`sendChat` 记录 `sessionId` / `messageId`；
+ *     历史消息没有 `source`（契约 30.2），界面据此标「历史记录」而不是「AI 模型回答」。
  */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
@@ -583,7 +584,6 @@ export const useCloudStore = defineStore('cloud', () => {
     '契约 22.11 的时间线端点在当前已合并后端中未实现：timeline 暂不可用',
     '契约 23.7 的阶段候选接口（POST .../milestones/candidates）在已合并后端没有路由：未实现客户端调用',
     '契约 22.4 正文没有 supersede 的请求字段表：客户端按 server/src/v3/progress.ts 实现，需补文档',
-    '聊天没有会话/消息读写端点（只有无状态 POST /api/advisor/chat）：云端聊天历史只存在于本次会话内存，刷新即丢失',
     '聊天响应的 citations 已按契约解析，但服务端 D15 之前恒返回空数组：回答里暂时不会出现材料引用',
     'V3 没有疑问读取端点：建议/聊天的 doubts 只能发空数组，未解决疑问不进 AI 上下文',
   ])
@@ -2888,14 +2888,14 @@ export const useCloudStore = defineStore('cloud', () => {
    * 契约 30.2：历史消息 → 现有 `CloudChatMessage`。
    *
    * 历史消息**没有** `source` / `fallbackReason`（只有实时响应才有），
-   * 这里刻意不填，运行期保持 `undefined`：界面读到 undefined 时不会渲染任何来源标签，
+   * 这里刻意不填，运行期保持 `undefined`：界面读到 undefined 时标「历史记录」，
    * 也就不会把历史消息伪装成「AI 模型回答」。
    *
-   * 类型上 `CloudChatMessage.source` 仍标为必填（界面据此取来源文案，本批次不改界面层），
-   * 所以这里做一次窄转换；需要彻底类型安全时，由界面层补一个 undefined 分支即可。
+   * 类型上 `CloudChatMessage.source` 已改为可选（V5 界面层接入后），
+   * 因此这里直接构造对象即可，不再需要窄转换。
    */
   function toHistoryChatMessage(dto: ChatHistoryMessage): CloudChatMessage {
-    const message = {
+    return {
       clientId: `hist_${dto.messageId}`,
       role: dto.role,
       text: dto.content,
@@ -2905,7 +2905,6 @@ export const useCloudStore = defineStore('cloud', () => {
       // 历史消息一定是服务端读回来的，等价于已落库
       persisted: true,
     }
-    return message as unknown as CloudChatMessage
   }
 
   /**
@@ -3169,7 +3168,10 @@ export const useCloudStore = defineStore('cloud', () => {
     return sendChat({ ...options, question })
   }
 
-  /** 只清空本次会话的聊天（后端不落库，没有云端历史可以删） */
+  /**
+   * 只清空**当前屏幕**：V5 的会话与消息已落库，但没有删除接口，
+   * 所以这里不宣称「删掉历史」，下次进入项目仍会读回云端记录。
+   */
   function clearChat(): void {
     chatAbort?.abort()
     chatAbort = null

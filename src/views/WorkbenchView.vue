@@ -20,6 +20,7 @@ import {
 import { CHINESE_NUM, WEEK_LABELS, useWorkbenchStore } from '@/stores/workbench'
 import { usePlatformStore } from '@/stores/platform'
 import { deriveDoubtSnapshots, deriveEvidenceSnapshots, toDisplayTime } from '@/domain/activity'
+import { buildLocalProjectExport, serializeProjectExport } from '@/domain/projectExport'
 import { deriveTaskSnapshots, findClaimedTaskFor, taskStatusText } from '@/domain/progress'
 import {
   MAX_ADVISOR_CHAT_QUESTION_LENGTH,
@@ -302,6 +303,34 @@ const recentEvidence = computed(() => project.value?.evidence ?? [])
 function onSelectProject(projectId: string) {
   const result = store.selectProject(projectId)
   if (!result.ok) notifyFailure(result)
+}
+
+/**
+ * 下载本地项目 JSON（V5-C：学生自助带走数据）。
+ *
+ * 本地项目没有账号，数据只在这台机器上；导出是纯函数序列化，不发请求。
+ * 云端项目的导出在云端工作台里，两处不共用按钮——投影语义不同。
+ */
+function downloadLocalProjectJson() {
+  const current = project.value
+  if (current === undefined) return
+  try {
+    const text = serializeProjectExport(
+      buildLocalProjectExport({ project: current, exportedAt: new Date().toISOString() }),
+    )
+    const blob = new Blob([text], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${(current.short || current.name).replace(/[\\/:*?"<>|]+/g, '-')}-项目导出.json`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+    store.toast('项目已导出为 JSON，可以在浏览器的下载列表里找到')
+  } catch {
+    store.toast('导出没有完成，请稍后再试')
+  }
 }
 
 type ClaimState = 'claimable' | 'claimed' | 'done' | 'draft'
@@ -1112,6 +1141,7 @@ watch(
         <div class="wb-head-actions">
           <button class="btn" type="button" @click="store.showCreate()">＋ 新建项目</button>
           <button class="btn" type="button" @click="router.push('/map')">查看项目地图</button>
+          <button class="btn" type="button" @click="downloadLocalProjectJson">下载项目 JSON</button>
         </div>
       </div>
 

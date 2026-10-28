@@ -2,6 +2,14 @@ import { mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CloudChatPanel from '@/components/CloudChatPanel.vue'
 
+/**
+ * AI 顾问（契约 6.4 / 23.7 / 30）
+ * ----------------------------------------------------------------------------
+ * V5 起聊天会落库，所以这个套件重点盯三件事：
+ *   1. 历史恢复（sessionId / historyStatus）不能把「没拉到」说成「没有历史」；
+ *   2. 历史消息没有 source，要标「历史记录」，不能冒充「AI 模型回答」；
+ *   3. messageId 为 null 时不能显示「已保存」。
+ */
 const mocked = vi.hoisted(() => ({
   cloud: {
     chat: {
@@ -10,6 +18,9 @@ const mocked = vi.hoisted(() => ({
       error: null as { code: string; message: string } | null,
       pendingQuestion: null as string | null,
       contextAttached: true,
+      sessionId: null as string | null,
+      historyStatus: 'idle' as 'idle' | 'loading' | 'ready' | 'error',
+      historyError: null as { code: string; message: string } | null,
     },
     sendChat: vi.fn(async () => ({ ok: true, data: {} })),
     retryChat: vi.fn(async () => ({ ok: true, data: {} })),
@@ -30,24 +41,104 @@ function message(overrides: Record<string, unknown> = {}): Record<string, unknow
     fallbackReason: null,
     citations: [],
     createdAt: '2026-10-22T03:00:00.000Z',
+    messageId: 'msg_1',
+    persisted: true,
     ...overrides,
   }
+}
+
+function setChat(patch: Record<string, unknown>): void {
+  mocked.cloud.chat = {
+    status: 'idle',
+    messages: [],
+    error: null,
+    pendingQuestion: null,
+    contextAttached: true,
+    sessionId: null,
+    historyStatus: 'idle',
+    historyError: null,
+    ...patch,
+  } as typeof mocked.cloud.chat
 }
 
 describe('CloudChatPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocked.cloud.chat = { status: 'idle', messages: [], error: null, pendingQuestion: null, contextAttached: true }
+    setChat({})
     mocked.cloud.sendChat.mockResolvedValue({ ok: true, data: {} })
     mocked.cloud.retryChat.mockResolvedValue({ ok: true, data: {} })
   })
 
-  it('空会话给出可问的问题，并声明记录不落库', () => {
+  it('空会话给出可问的问题；没连上会话时不宣称已保存', () => {
     const wrapper = mount(CloudChatPanel)
 
     expect(wrapper.text()).toContain('还没有对话')
-    expect(wrapper.text()).toContain('聊天记录暂不保存')
     expect(wrapper.text()).toContain('本次会话')
+    expect(wrapper.text()).toContain('还没连上云端会话')
+    expect(wrapper.text()).not.toContain('已保存到云端')
+  })
+
+  it('拿到会话后说明对话会保存到账号', () => {
+    setChat({ sessionId: 'sess_1', historyStatus: 'ready' })
+
+    const wrapper = mount(CloudChatPanel)
+
+    expect(wrapper.text()).toContain('已保存到云端')
+    expect(wrapper.text()).toContain('对话会保存到你的账号')
+    expect(wrapper.text()).toContain('刷新、换设备、重新登录后还能看到')
+  })
+
+  it('历史记录没拉到时说实话，并保留本次会话', () => {
+    setChat({
+      sessionId: null,
+      historyStatus: 'error',
+      historyError: { code: 'NETWORK_ERROR', message: '连不上后端服务' },
+      messages: [message({ clientId: 'chat_now', text: '这次会话里刚问的问题' })],
+    })
+
+    const wrapper = mount(CloudChatPanel)
+
+    expect(wrapper.text()).toContain('历史记录暂时没拉到')
+    expect(wrapper.text()).toContain('不代表以前没聊过')
+    expect(wrapper.text()).toContain('这次会话里刚问的问题')
+    // 不能把失败说成「没有对话」
+    expect(wrapper.text()).not.toContain('还没有对话')
+  })
+
+  it('历史消息没有来源字段时标「历史记录」，不冒充 AI 模型回答', () => {
+    setChat({
+      sessionId: 'sess_1',
+      historyStatus: 'ready',
+      messages: [
+        message({
+          clientId: 'hist_msg_1',
+          text: '这是上次会话里恢复出来的回答。',
+          source: undefined,
+          fallbackReason: undefined,
+        }),
+      ],
+    })
+
+    const wrapper = mount(CloudChatPanel)
+
+    expect(wrapper.text()).toContain('历史记录')
+    expect(wrapper.text()).not.toContain('AI 模型回答')
+  })
+
+  it('messageId 为空时不显示「已保存到云端」', () => {
+    setChat({
+      sessionId: 'sess_1',
+      historyStatus: 'ready',
+      messages: [
+        message({ messageId: null, persisted: false }),
+        message({ clientId: 'chat_2', messageId: 'msg_2', persisted: true }),
+      ],
+    })
+
+    const wrapper = mount(CloudChatPanel)
+    const persistLabels = wrapper.findAll('.chat-persist').map((item) => item.text())
+
+    expect(persistLabels).toEqual(['未保存到云端', '已保存到云端'])
   })
 
   it('发送成功后清空输入框', async () => {
@@ -62,13 +153,11 @@ describe('CloudChatPanel', () => {
   })
 
   it('发送失败保留问题，点重试直接复用原问题', async () => {
-    mocked.cloud.chat = {
+    setChat({
       status: 'error',
-      messages: [],
       error: { code: 'MODEL_UNAVAILABLE', message: '模型服务暂时不可用，请稍后重试' },
       pendingQuestion: '下一步做什么',
-      contextAttached: true,
-    }
+    })
 
     const wrapper = mount(CloudChatPanel)
     expect(wrapper.text()).toContain('模型服务暂时不可用')
@@ -78,10 +167,15 @@ describe('CloudChatPanel', () => {
   })
 
   it('兜底回答说人话，并展示材料引用行号', () => {
-    mocked.cloud.chat = {
-      status: 'idle',
+    setChat({
       messages: [
-        message({ role: 'user', clientId: 'chat_u1', text: '下一步做什么', source: 'model' }),
+        message({
+          role: 'user',
+          clientId: 'chat_u1',
+          text: '下一步做什么',
+          messageId: null,
+          persisted: false,
+        }),
         message({
           source: 'fallback',
           fallbackReason: 'MODEL_TIMEOUT',
@@ -98,27 +192,18 @@ describe('CloudChatPanel', () => {
           ],
         }),
       ],
-      error: null,
-      pendingQuestion: null,
-      contextAttached: true,
-    }
+    })
 
     const wrapper = mount(CloudChatPanel)
 
-    expect(wrapper.text()).toContain('服务端规则兜底')
+    expect(wrapper.text()).toContain('服务端规则回答')
     expect(wrapper.text()).toContain('模型响应超时')
     expect(wrapper.text()).toContain('依据：实验手册.md 第 10–24 行')
     expect(wrapper.text()).not.toContain('MODEL_TIMEOUT')
   })
 
   it('正在思考时禁用发送，避免重复提交', () => {
-    mocked.cloud.chat = {
-      status: 'loading',
-      messages: [],
-      error: null,
-      pendingQuestion: null,
-      contextAttached: true,
-    }
+    setChat({ status: 'loading' })
 
     const wrapper = mount(CloudChatPanel)
 
@@ -127,17 +212,15 @@ describe('CloudChatPanel', () => {
     expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
   })
 
-  it('清空会调用 store 并重置输入', async () => {
-    mocked.cloud.chat = {
-      status: 'idle',
-      messages: [message()],
-      error: null,
-      pendingQuestion: null,
-      contextAttached: true,
-    }
+  it('清空只影响这一屏：调用 store 并重置输入，不谎称删掉云端历史', async () => {
+    setChat({ sessionId: 'sess_1', historyStatus: 'ready', messages: [message()] })
 
     const wrapper = mount(CloudChatPanel)
-    await wrapper.get('.chat-head button').trigger('click')
+    const button = wrapper.get('.chat-head button')
+    expect(button.text()).toBe('清空屏幕')
+    expect(button.attributes('title')).toContain('云端已保存的对话')
+
+    await button.trigger('click')
 
     expect(mocked.cloud.clearChat).toHaveBeenCalled()
   })

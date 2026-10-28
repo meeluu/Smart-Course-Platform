@@ -7,6 +7,11 @@ import CloudAdvisorPanel from '@/components/CloudAdvisorPanel.vue'
 import CloudCandidatePanel from '@/components/CloudCandidatePanel.vue'
 import CloudChatPanel from '@/components/CloudChatPanel.vue'
 import CloudMaterialsPanel from '@/components/CloudMaterialsPanel.vue'
+import {
+  CLOUD_EXPORT_NOTICE,
+  buildCloudProjectExport,
+  serializeProjectExport,
+} from '@/domain/projectExport'
 import type { CloudMilestone, CloudTask, ProgressRecord } from '@/types/platform'
 
 const platform = usePlatformStore()
@@ -249,7 +254,7 @@ const nextSteps = computed<NextStepHint[]>(() => {
       id: 'activate-milestone',
       kind: 'activate-milestone',
       title: '先把这个阶段开始',
-      detail: '阶段还没有开始，开始后新进展和证据才会落在当前阶段上。',
+      detail: '阶段还没有开始，开始后新进展和工作记录才会落在当前阶段上。',
       actionLabel: '开始阶段',
       taskId: null,
     })
@@ -269,7 +274,7 @@ const nextSteps = computed<NextStepHint[]>(() => {
       id: 'create-task',
       kind: 'create-task',
       title: '给阶段拆一个能做完的任务',
-      detail: '一个阶段至少需要一个能在几次工作内完成、可以拿证据的任务。',
+      detail: '一个阶段至少需要一个能在几次工作内完成、能留下记录的任务。',
       actionLabel: '去新建任务',
       taskId: null,
     })
@@ -279,7 +284,7 @@ const nextSteps = computed<NextStepHint[]>(() => {
       id: `start-${task.taskId}`,
       kind: 'start-task',
       title: `开始任务：${task.title}`,
-      detail: '任务还是待开始状态，先动手，再回来补进展和证据。',
+      detail: '任务还是待开始状态，先动手，再回来补进展和工作记录。',
       actionLabel: '开始',
       taskId: task.taskId,
     })
@@ -290,9 +295,9 @@ const nextSteps = computed<NextStepHint[]>(() => {
     hints.push({
       id: `evidence-${task.taskId}`,
       kind: 'submit-evidence',
-      title: `为「${task.title}」补一条证据`,
-      detail: '任务在进行中但还没有证据，先写下做了什么、发现了什么。',
-      actionLabel: '去记录证据',
+      title: `为「${task.title}」补一条工作记录`,
+      detail: '任务在进行中但还没有记录，先写下做了什么、发现了什么。',
+      actionLabel: '去记一条',
       taskId: task.taskId,
     })
   }
@@ -315,7 +320,7 @@ const nextSteps = computed<NextStepHint[]>(() => {
       id: 'complete-milestone',
       kind: 'complete-milestone',
       title: '任务都完成了，可以收尾这个阶段',
-      detail: '确认完成标准都满足后再标记完成；已有证据会保留在阶段历史里。',
+      detail: '确认完成标准都满足后再标记完成；已有记录会保留在阶段历史里。',
       actionLabel: '完成阶段',
       taskId: null,
     })
@@ -601,12 +606,72 @@ function dueText(value: string | null): string {
     ? '截止时间未知'
     : `截止 ${date.toLocaleString('zh-CN', { hour12: false, dateStyle: 'medium', timeStyle: 'short' })}`
 }
+
+/* ------------------------------------------------------------ 带走我的项目 */
+
+/**
+ * 项目 JSON 导出（V5-C，数据层在 `domain/projectExport.ts`）。
+ *
+ * 三条界面规则来自数据层交付说明 §2.2：
+ *   1. 云端导出必须**同时**展示 notice：这是只读投影快照，不是完整备份；
+ *   2. 只传**已加载**的列表，没加载就交给导出层写 `loaded: false`——
+ *      界面上不能因此说「没有任务 / 没有工作记录」；
+ *   3. 文件名用短名，去掉 Windows 不允许的字符。
+ */
+const exportNotice = CLOUD_EXPORT_NOTICE
+const exportBusy = ref(false)
+const exportError = ref('')
+const exportDone = ref(false)
+
+const tasksLoaded = computed(() => cloud.tasksHydrated === true)
+const materialsLoaded = computed(() => cloud.materialsHydrated === true)
+
+function safeFileName(value: string): string {
+  const cleaned = value.replace(/[\\/:*?"<>|]+/g, '-').trim()
+  return cleaned === '' ? '项目' : cleaned
+}
+
+function downloadProjectJson(): void {
+  const current = project.value
+  if (current === null) return
+  exportBusy.value = true
+  exportError.value = ''
+  exportDone.value = false
+
+  try {
+    const document_ = buildCloudProjectExport({
+      project: current,
+      // 没加载的列表不传：导出里会是 loaded: false，而不是空数组
+      ...(tasksLoaded.value ? { tasks: cloud.tasks } : {}),
+      evidence: cloud.evidence,
+      progress: cloud.progress,
+      ...(materialsLoaded.value ? { materials: cloud.materials } : {}),
+      exportedAt: new Date().toISOString(),
+    })
+
+    const text = serializeProjectExport(document_)
+    const blob = new Blob([text], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${safeFileName(current.short ?? current.name)}-项目导出.json`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+    exportDone.value = true
+  } catch {
+    exportError.value = '导出没有完成，请稍后再试；当前页面内容不受影响。'
+  } finally {
+    exportBusy.value = false
+  }
+}
 </script>
 
 <template>
   <div class="cloud-workbench">
     <div class="mode-banner">
-      <b>云端项目</b> 当前数据来自服务端。项目、阶段、任务、证据和进展会按账号保存；未实现的时间线不会用本地数据代替。
+      <b>云端项目</b> 这里的阶段、任务、进展和工作记录都会保存到你的账号，换设备登录也能接着做。
     </div>
 
     <section v-if="!project || showCreate" class="card cloud-create">
@@ -676,11 +741,16 @@ function dueText(value: string | null): string {
 
         <section v-if="!milestones.length" class="card empty-stage">
           <div class="card-b">
-            <h2>还没有里程碑</h2>
-            <p>空白项目不会自动生成阶段。你可以自己建第一个，也可以先按项目资料生成候选，再由你逐条确认写入。</p>
-            <div class="empty-actions">
-              <button class="btn primary" type="button" @click="focusField('milestone-name')">新建里程碑</button>
-              <button class="btn" type="button" @click="requestMilestoneCandidates">根据项目资料生成候选</button>
+            <div class="empty-state">
+              <h3>还没有阶段：先建第一个</h3>
+              <p>
+                一个阶段是一次能收尾的工作，写完「阶段名称」和「完成标准」就够了。
+                没想好怎么拆，可以让 AI 根据项目资料给几个候选，再由你逐条确认写入。
+              </p>
+              <div class="empty-actions">
+                <button class="btn primary" type="button" @click="focusField('milestone-name')">新建阶段</button>
+                <button class="btn" type="button" @click="requestMilestoneCandidates">根据项目资料生成候选</button>
+              </div>
             </div>
           </div>
         </section>
@@ -710,7 +780,7 @@ function dueText(value: string | null): string {
             <div class="stage-progress"><i :style="{ width: `${currentMilestone.taskStats.progress}%` }"></i></div>
             <small>{{ currentMilestone.taskStats.done }}/{{ currentMilestone.taskStats.total }} 个任务已完成（{{ currentMilestone.taskStats.progress }}%）</small>
           </template>
-          <p v-else class="empty">还没有阶段，下面的「里程碑管理」可以直接新建。</p>
+          <p v-else class="empty">还没有阶段，下面的「阶段管理」可以直接新建。</p>
         </div>
       </section>
 
@@ -731,13 +801,13 @@ function dueText(value: string | null): string {
             </li>
           </ol>
           <p v-else class="empty">当前阶段没有待办提示，可以先记录一次进展，或去「阶段任务」补充新任务。</p>
-          <p class="next-step-note">这里的顺序由当前阶段的任务、证据和进展推导，不是 AI 建议；云端 AI 建议在当前阶段卡下方单独生成。</p>
+          <p class="next-step-note">这些顺序是按当前阶段的任务、工作记录和进展排出来的，不是 AI 建议；AI 给出的下一步在「AI 建议」卡里单独生成。</p>
         </div>
       </section>
 
       <div class="cloud-grid">
         <section class="card">
-          <div class="card-h">里程碑管理 <span class="tag">{{ milestones.length }}</span></div>
+          <div class="card-h">阶段管理 <span class="tag">{{ milestones.length }}</span></div>
           <div class="card-b">
             <form class="compact-form" @submit.prevent="saveMilestone">
               <strong>{{ editingMilestoneId ? '编辑阶段' : '新建阶段' }}</strong>
@@ -776,12 +846,12 @@ function dueText(value: string | null): string {
               <select v-model="taskForm.milestoneId" aria-label="任务所属阶段"><option value="">待办任务</option><option v-for="milestone in milestones" :key="milestone.milestoneId" :value="milestone.milestoneId">{{ milestone.name }}</option></select>
               <button class="btn primary" type="submit" :disabled="isBusy('createTask')">{{ isBusy('createTask') ? '创建中…' : '创建任务' }}</button>
             </form>
-            <p v-if="!cloud.tasksHydrated" class="not-supported">任务列表还没有成功加载，页面不会把空列表当成“没有任务”。</p>
+            <p v-if="!cloud.tasksHydrated" class="not-supported">任务还没读出来，页面不会把空列表当成「没有任务」；可以刷新页面重试。</p>
             <div v-for="task in currentTasks" :key="task.taskId" class="task-row">
               <div><strong>{{ task.title }}</strong><p v-if="task.doneCriteria">完成标准：{{ task.doneCriteria }}</p><small>{{ statusText(task.status) }}</small></div>
               <div class="row-actions"><button v-if="task.status === 'todo'" class="btn" type="button" :disabled="isBusy('task.start')" @click="taskAction(task, 'start')">开始</button><button v-if="task.status !== 'done'" class="btn" type="button" :disabled="isBusy('task.complete')" @click="taskAction(task, 'complete')">完成</button><button v-else class="btn" type="button" :disabled="isBusy('task.reopen')" @click="taskAction(task, 'reopen')">重开</button></div>
             </div>
-            <p v-if="cloud.tasksHydrated && !currentTasks.length" class="empty">当前阶段还没有任务。</p>
+            <p v-if="cloud.tasksHydrated && !currentTasks.length" class="empty">当前阶段还没有任务。在上面「任务标题」里写一件几次工作能做完的事，创建后会出现在这里。</p>
             <div v-if="unassignedTasks.length" class="unassigned">
               <p>还有 {{ unassignedTasks.length }} 个任务没有挂到阶段：</p>
               <div v-for="task in unassignedTasks" :key="task.taskId" class="unassigned-row">
@@ -841,7 +911,7 @@ function dueText(value: string | null): string {
               </div>
             </form>
 
-            <p v-if="!currentProgress.length" class="empty">当前阶段还没有进展记录。</p>
+            <p v-if="!currentProgress.length" class="empty">当前阶段还没有进展。写一句「这次推进了什么」，下次打开项目就知道从哪继续。</p>
 
             <details v-if="correctedProgress.length" class="corrected-history">
               <summary>已更正的进展（{{ correctedProgress.length }} 条，正文保留）</summary>
@@ -854,27 +924,56 @@ function dueText(value: string | null): string {
         </section>
 
         <section class="card">
-          <div class="card-h">关联证据</div>
+          <div class="card-h">工作记录</div>
           <div class="card-b">
             <form class="compact-form" @submit.prevent="submitEvidence">
-              <select v-model="evidenceForm.taskId" aria-label="证据关联任务"><option value="">关联当前阶段</option><option v-for="task in currentTasks" :key="task.taskId" :value="task.taskId">{{ task.title }}</option></select>
-              <textarea ref="evidenceDidWhatInput" v-model="evidenceForm.didWhat" placeholder="做了什么" aria-label="证据：做了什么" maxlength="300" required></textarea>
-              <textarea v-model="evidenceForm.foundWhat" placeholder="发现了什么（可选）" aria-label="证据：发现了什么" maxlength="500"></textarea>
-              <textarea v-model="evidenceForm.stillUnsure" placeholder="仍不确定什么（可选）" aria-label="证据：仍不确定什么" maxlength="500"></textarea>
+              <select v-model="evidenceForm.taskId" aria-label="工作记录关联任务"><option value="">关联当前阶段</option><option v-for="task in currentTasks" :key="task.taskId" :value="task.taskId">{{ task.title }}</option></select>
+              <textarea ref="evidenceDidWhatInput" v-model="evidenceForm.didWhat" placeholder="做了什么" aria-label="工作记录：做了什么" maxlength="300" required></textarea>
+              <textarea v-model="evidenceForm.foundWhat" placeholder="发现了什么（可选）" aria-label="工作记录：发现了什么" maxlength="500"></textarea>
+              <textarea v-model="evidenceForm.stillUnsure" placeholder="仍不确定什么（可选）" aria-label="工作记录：仍不确定什么" maxlength="500"></textarea>
               <label class="checkbox-line"><input v-model="evidenceForm.completeTask" type="checkbox" :disabled="!evidenceForm.taskId" /> 提交后确认完成所选任务</label>
-              <button class="btn green" type="submit" :disabled="isBusy('createEvidence')">{{ isBusy('createEvidence') ? '保存中…' : '保存证据' }}</button>
+              <button class="btn green" type="submit" :disabled="isBusy('createEvidence')">{{ isBusy('createEvidence') ? '保存中…' : '保存记录' }}</button>
             </form>
             <div v-for="item in currentEvidence" :key="item.evidenceId" class="activity-row"><small>{{ timeText(item.createdAt) }}</small><p>{{ item.didWhat }}</p><small v-if="item.foundWhat">发现：{{ item.foundWhat }}</small></div>
-            <p v-if="!currentEvidence.length" class="empty">当前阶段还没有关联证据。</p>
+            <p v-if="!currentEvidence.length" class="empty">当前阶段还没有工作记录。做完一步就回来记一条，下次的 AI 建议会用到。</p>
           </div>
         </section>
       </div>
 
       <CloudChatPanel />
 
-      <section class="card unsupported-card">
-        <div class="card-h">能力状态</div>
-        <div class="card-b"><p>时间线读取接口仍未接入；材料、阶段候选、AI 建议与聊天已接入</p></div>
+      <!-- 带走我的项目：一个按钮 + 必须同时出现的说明，不做成「备份」 -->
+      <section class="card export-card">
+        <div class="card-h">
+          带走我的项目
+          <span class="tag export-tag">导出 JSON · 可自己留档</span>
+        </div>
+        <div class="card-b">
+          <p class="export-lead">
+            把当前项目导出成一个 JSON 文件，包含项目基本信息、阶段、任务、进展和工作记录。
+            不含聊天记录，也不含材料原文。
+          </p>
+
+          <div class="notice notice-info export-notice">
+            <div class="notice-text">{{ exportNotice }}</div>
+          </div>
+
+          <p v-if="!tasksLoaded || !materialsLoaded" class="export-loading">
+            还没加载完的列表：
+            <template v-if="!tasksLoaded">任务</template>
+            <template v-if="!tasksLoaded && !materialsLoaded">、</template>
+            <template v-if="!materialsLoaded">材料</template>
+            会在文件里标记为「未加载」，<b>不代表项目里没有</b>；需要完整快照请刷新页面后再导出。
+          </p>
+
+          <div class="export-actions">
+            <button class="btn primary" type="button" :disabled="exportBusy" @click="downloadProjectJson">
+              {{ exportBusy ? '正在导出…' : '下载项目 JSON' }}
+            </button>
+            <span v-if="exportDone" class="export-done" role="status">已开始下载，可以在浏览器的下载列表里找到。</span>
+          </div>
+          <p v-if="exportError" class="cloud-error" role="alert">{{ exportError }}</p>
+        </div>
       </section>
       </div>
 
@@ -921,8 +1020,13 @@ function dueText(value: string | null): string {
 .cloud-error { color:#854F0B; background:#FAEEDA; border:1px solid #FAC775; border-radius:8px; padding:8px 10px; line-height:1.6; }
 .action-error { margin-bottom:14px; }
 .checkbox-line { display:flex; align-items:center; gap:6px; font-size:12px; color:#5f5e5a; }
-.unsupported-card { margin-bottom:20px; }
-.unsupported-card p { color:#5f5e5a; line-height:1.6; }
+.export-card { margin-bottom:20px; }
+.export-tag { background:#E1F5EE; color:#0F6E56; border:1px solid #9FE1CB; }
+.export-lead { color:#5f5e5a; line-height:1.7; }
+.export-notice { margin-top:10px; }
+.export-loading { margin-top:10px; font-size:12px; color:#854F0B; line-height:1.7; }
+.export-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:12px; }
+.export-done { font-size:12px; color:#0F6E56; }
 .cloud-tabs { display:flex; gap:2px; border-bottom:1px solid #e4e2da; margin:0 0 14px; }
 .cloud-tab { display:flex; align-items:center; gap:6px; border:0; border-bottom:2px solid transparent; background:transparent; padding:9px 14px; font:inherit; font-size:13px; color:#5f5e5a; cursor:pointer; }
 .cloud-tab:hover { color:#185FA5; }
@@ -930,8 +1034,7 @@ function dueText(value: string | null): string {
 .cloud-tab:focus-visible { outline:2px solid #378ADD; outline-offset:2px; border-radius:6px 6px 0 0; }
 .cloud-tab-count { background:#f1efe8; color:#5f5e5a; border:1px solid #d3d1c7; }
 .empty-stage { margin-bottom:14px; }
-.empty-stage h2 { font-size:17px; margin-bottom:8px; }
-.empty-stage p { color:#5f5e5a; line-height:1.7; }
+.empty-stage .empty-state h3 { font-size:16px; }
 .empty-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
 .next-step { margin-bottom:14px; }
 .next-step-list { display:grid; gap:10px; padding-left:20px; list-style:decimal; }
@@ -967,5 +1070,7 @@ function dueText(value: string | null): string {
   .next-step-list li { flex-direction:column; align-items:stretch; }
   .next-step-list .btn { width:100%; }
   .empty-actions .btn { flex:1 1 auto; }
+  .export-actions { align-items:stretch; flex-direction:column; }
+  .export-actions .btn { width:100%; }
 }
 </style>

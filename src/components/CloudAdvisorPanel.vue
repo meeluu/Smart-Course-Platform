@@ -30,10 +30,10 @@ const FALLBACK_TEXT: Record<AdvisorFallbackReason, string> = {
 }
 
 const sourceText = computed(() => {
-  if (advisor.value.source === 'model') return '模型生成（model）'
-  if (advisor.value.source === 'fallback') return '服务端规则兜底（fallback）'
-  if (advisor.value.source === 'local-rule') return '本地规则兜底（local-rule）'
-  return '尚未生成'
+  if (advisor.value.source === 'model') return 'AI 模型生成'
+  if (advisor.value.source === 'fallback') return '服务端规则回答'
+  if (advisor.value.source === 'local-rule') return '本地规则回答'
+  return '还没生成'
 })
 
 const fallbackText = computed(() => {
@@ -77,7 +77,7 @@ async function generate(): Promise<void> {
       </p>
       <template v-else>
         <p v-if="advisor.status === 'idle' && failureMessage === ''" class="advisor-hint">
-          结合当前阶段、任务、进展和已确认材料，生成下一步可执行建议。
+          结合当前阶段、任务、进展和你已确认的材料要点，生成下一步能直接做的建议。
         </p>
         <p v-if="loading" class="advisor-hint">正在结合当前阶段生成建议…</p>
         <p v-if="failureMessage !== ''" class="advisor-state advisor-state-error" role="alert">

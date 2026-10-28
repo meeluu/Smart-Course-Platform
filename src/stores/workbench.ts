@@ -2108,7 +2108,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       toast('本地存储不可用，检索方向没有保存')
       return
     }
-    toast('AI 已生成专属检索提示词')
+    toast('检索提示词已生成，复制到 GPT 里检索即可')
   }
 
   /* -------------------------------------------------------- 建议请求流程 */
