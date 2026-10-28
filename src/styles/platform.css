@@ -1,13 +1,50 @@
 /* ============================================================================
    平台界面样式
    ----------------------------------------------------------------------------
-   与 platform-ui-mockup(3).html 的样式表保持一致：同一套配色、同一批类名。
-   组件里直接沿用 mockup 的类名，方便逐屏对照，改动也会小。
+   起源于 platform-ui-mockup(3).html：类名与配色沿用，V5-A 在**不换框架**的前提下
+   补齐了刻度、焦点态、过渡与窄屏规则，数值统一收敛到下面这组变量。
+   组件里继续用这些类名，避免同一件事出现两套写法。
    ========================================================================== */
 
+/* ----------------------------------------------------------------------------
+   设计刻度（V5-A）
+   ----------------------------------------------------------------------------
+   页面只允许用下面这几档，不再随手写 13px / 18px / 6px 这类一次性数值。
+   刻度说明与取舍见 DESIGN.md「刻度」一节。
+   ========================================================================== */
+:root {
+  /* 间距刻度：4 的倍数，共七档 */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s7:32px;
+  /* 圆角：卡片 / 卡内小块 / 控件 / 胶囊 */
+  --r-card:14px; --r-block:10px; --r-control:9px; --r-pill:999px;
+  /* 字号：11 是下限（只给标签与时间戳），正文 14 */
+  --t-min:11px; --t-note:12px; --t-small:12.5px; --t-body:13px; --t-base:14px; --t-title:18px; --t-hero:22px;
+  /* 层级：底色差 + 发丝线 + 一级浮起；二级浮起只给浮层 */
+  --line:#e3e2dd; --line-soft:#efeee9;
+  --shadow-1:0 1px 2px rgba(44,44,42,.04), 0 1px 1px rgba(44,44,42,.03);
+  --shadow-2:0 12px 32px rgba(44,44,42,.12);
+  /* 动效：统一缓动与时长，减少「有的地方 0.15s、有的地方 0.3s」 */
+  --ease:cubic-bezier(.2,.7,.3,1); --dur:.18s;
+  /* 语义色（与 DESIGN.md 色彩表一致，不新增第五种语义） */
+  --blue:#185FA5; --blue-deep:#0C447C; --blue-soft:#E6F1FB; --blue-line:#B5D4F4;
+  --green:#1D9E75; --green-deep:#0F6E56; --green-soft:#E1F5EE; --green-line:#9FE1CB;
+  --purple:#534AB7; --purple-deep:#3C3489; --purple-soft:#EEEDFE; --purple-line:#CECBF6;
+  --amber:#FAC775; --amber-deep:#854F0B; --amber-soft:#FAEEDA;
+  --ink:#2c2c2a; --ink-2:#444441; --ink-3:#5f5e5a; --ink-4:#888780;
+}
+
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family:"Microsoft YaHei","PingFang SC",sans-serif; background:#f5f6f8; color:#2c2c2a; font-size:14px; }
+html { -webkit-text-size-adjust:100%; }
+body { font-family:"Microsoft YaHei","PingFang SC",sans-serif; background:#f5f6f8; color:#2c2c2a; font-size:14px; line-height:1.6; }
 button { font-family:inherit; cursor:pointer; }
+button, a, input, select, textarea, summary { -webkit-tap-highlight-color:transparent; }
+
+/* 焦点态：键盘操作必须看得见（对比度 ≥ 3:1，且不依赖颜色深浅表达层次） */
+:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline:2px solid #378ADD;
+  outline-offset:2px;
+  border-radius:var(--r-control);
+}
 
 header { background:#fff; border-bottom:1px solid #e3e2dd; padding:0 24px; height:56px; display:flex; align-items:center; gap:20px; position:sticky; top:0; z-index:10; }
 .logo { font-size:16px; font-weight:600; color:#185FA5; }
@@ -22,15 +59,20 @@ nav button:hover { color:#185FA5; }
 .page { display:none; padding:20px 24px; max-width:1440px; margin:0 auto; }
 .page.show { display:block; }
 
-.card { background:#fff; border:1px solid #e3e2dd; border-radius:12px; }
-.card-h { padding:12px 16px; border-bottom:1px solid #efeee9; font-weight:600; font-size:14px; display:flex; align-items:center; gap:8px; }
+.card { background:#fff; border:1px solid var(--line); border-radius:var(--r-card); box-shadow:var(--shadow-1); }
+.card-h { padding:12px 16px; border-bottom:1px solid var(--line-soft); font-weight:600; font-size:var(--t-base); display:flex; align-items:center; gap:8px; min-height:44px; }
 .card-b { padding:14px 16px; }
-.tag { font-size:11px; padding:2px 8px; border-radius:10px; font-weight:400; }
+.tag { font-size:var(--t-min); padding:2px 8px; border-radius:var(--r-pill); font-weight:400; white-space:nowrap; }
 
-.btn { border:1px solid #d3d1c7; background:#fff; border-radius:8px; padding:6px 14px; font-size:12.5px; color:#444441; }
-.btn.primary { background:#185FA5; border-color:#185FA5; color:#fff; }
-.btn.primary:hover { background:#0C447C; }
-.btn.green { background:#1D9E75; border-color:#1D9E75; color:#fff; }
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:34px; border:1px solid #d3d1c7; background:#fff; border-radius:var(--r-control); padding:6px 14px; font-size:var(--t-small); color:var(--ink-2); transition:background var(--dur) var(--ease), border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease); }
+.btn:hover:not(:disabled) { background:#fbfaf7; border-color:#b9b7ad; }
+.btn:active:not(:disabled) { transform:translateY(1px); }
+.btn:disabled { cursor:not-allowed; opacity:.55; }
+.btn.primary { background:var(--blue); border-color:var(--blue); color:#fff; }
+.btn.primary:hover:not(:disabled) { background:var(--blue-deep); border-color:var(--blue-deep); }
+.btn.green { background:var(--green); border-color:var(--green); color:#fff; }
+.btn.green:hover:not(:disabled) { background:var(--green-deep); border-color:var(--green-deep); }
+.btn.quiet { border-color:transparent; background:transparent; color:var(--blue); padding:4px 6px; min-height:28px; }
 
 /* ===== 创建项目 ===== */
 .create-wrap { max-width:680px; margin:30px auto; }
@@ -101,7 +143,28 @@ nav button:hover { color:#185FA5; }
 .tl-item { position:relative; padding-bottom:14px; }
 .tl-item::before { content:""; position:absolute; left:-17px; top:5px; width:8px; height:8px; border-radius:50%; background:#378ADD; }
 .tl-time { font-size:11px; color:#888780; } .tl-text { font-size:12.5px; margin-top:2px; line-height:1.55; } .tl-who { font-size:11px; color:#185FA5; }
-.empty { font-size:12.5px; color:#888780; padding:10px 0; line-height:1.6; }
+.empty { font-size:12.5px; color:#888780; padding:10px 0; line-height:1.7; }
+
+/* ----------------------------------------------------------------------------
+   空状态与提示条（V5-A）
+   ----------------------------------------------------------------------------
+   `.empty` 只够放一句说明；需要「下一步点哪里」时用 `.empty-state`：
+   一行标题 + 一句解释 + 一个动作，学生不用猜。
+   ========================================================================== */
+.empty-state { display:grid; gap:6px; justify-items:start; padding:18px 16px; border:1px dashed #dcdad2; border-radius:var(--r-block); background:#fbfaf7; }
+.empty-state h3 { font-size:13.5px; font-weight:600; color:var(--ink); line-height:1.5; }
+.empty-state p { font-size:var(--t-small); color:var(--ink-3); line-height:1.7; }
+.empty-state .btn { margin-top:4px; }
+.empty-state .empty-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+
+/* 提示条：只承担「告诉你发生了什么 + 你可以做什么」，不承担装饰 */
+.notice { display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border:1px solid; border-radius:var(--r-block); font-size:var(--t-small); line-height:1.7; }
+.notice-warn { background:var(--amber-soft); border-color:var(--amber); color:#633806; }
+.notice-error { background:#FDEEEE; border-color:#F3B9B9; color:#8A2A2A; }
+.notice-info { background:var(--blue-soft); border-color:var(--blue-line); color:var(--blue-deep); }
+.notice .btn { flex-shrink:0; min-height:30px; padding:4px 10px; }
+.notice-text { flex:1; min-width:0; }
+.notice-text b { font-weight:600; }
 
 /* 紧凑流程条（穿插在主页面顶部） */
 .flow { display:flex; align-items:stretch; padding:8px 4px; overflow-x:auto; }
@@ -122,15 +185,64 @@ nav button:hover { color:#185FA5; }
 .wb span { font-size:10px; color:#888780; }
 .wb b { font-size:11px; color:#185FA5; }
 
-.paper { border:1px solid #e3e2dd; border-radius:12px; padding:16px 18px; margin-bottom:14px; background:#fff; }
-.paper-title { font-weight:600; font-size:14.5px; line-height:1.5; }
-.paper-meta { font-size:12px; color:#888780; margin-top:4px; }
-.paper-why { font-size:12.5px; color:#5f5e5a; background:#f8f7f4; border-radius:8px; padding:8px 12px; margin-top:10px; line-height:1.6; }
-.paper-why b { color:#3C3489; font-weight:600; }
-.paper-actions { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
-.mode-banner { background:#FAEEDA; border:1px solid #FAC775; border-radius:12px; padding:12px 16px; margin-bottom:16px; font-size:13px; color:#633806; line-height:1.7; }
+/* 论文卡的样式在 views/PapersView.vue 的 scoped 区域：
+   旧的模板卡（PaperDirectionCard）已随 V5-B 真实检索下线，避免两套论文卡并存。 */
+.mode-banner { background:#FAEEDA; border:1px solid #FAC775; border-radius:var(--r-card); padding:12px 16px; margin-bottom:16px; font-size:var(--t-body); color:#633806; line-height:1.7; }
+.mode-banner b { font-weight:600; }
+
+/* 屏幕阅读器专用：视觉上不占位，但读屏能读到 */
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+/* 跳转到主内容：键盘用户第一次按 Tab 就能跳过导航 */
+.skip-link { position:absolute; left:12px; top:-48px; z-index:100; background:#fff; border:1px solid var(--blue); color:var(--blue); border-radius:var(--r-control); padding:8px 14px; font-size:var(--t-small); text-decoration:none; transition:top var(--dur) var(--ease); }
+.skip-link:focus { top:8px; }
 
 .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#2c2c2a; color:#fff; padding:10px 20px; border-radius:10px; font-size:13px; opacity:0; transition:opacity .3s; pointer-events:none; z-index:99; max-width:80%; }
 .toast.show { opacity:1; }
 
 @media (max-width:1100px){ .stu-grid { grid-template-columns:1fr; } }
+
+/* ----------------------------------------------------------------------------
+   窄屏（V5-A）：390px 起可用
+   ----------------------------------------------------------------------------
+   目标不是「能显示」，而是核心流程能点完：建项目 → 看阶段 → 认领任务 →
+   写记录 → 聊天。因此按钮不缩到 40px 以下，卡片内边距与标题栏一起收，
+   任何一行文字都能换行（overflow-wrap），不出现横向滚动。
+   ========================================================================== */
+@media (max-width:520px){
+  .page { padding:14px 12px 28px; }
+  .card-h { padding:11px 13px; font-size:var(--t-body); min-height:42px; flex-wrap:wrap; }
+  .card-b { padding:12px 13px; }
+  .mode-banner { padding:10px 12px; font-size:var(--t-small); margin-bottom:12px; }
+  .empty-state { padding:14px 12px; }
+  .notice { flex-direction:column; align-items:stretch; }
+  .notice .btn { align-self:flex-start; }
+
+  /* 触控目标：主操作与表单按钮至少 44px 高 */
+  .btn.primary, .btn.green, .create-btn { min-height:44px; }
+  .btn { min-height:38px; }
+
+  /* 表单控件统一撑满，避免 iOS 上 100% 宽度计算偏差 */
+  input, select, textarea { max-width:100%; }
+  .proj-select { width:100%; max-width:none; }
+  .chat-input { flex-direction:column; align-items:stretch; }
+  .chat-input input { width:100%; }
+  .chat-input .btn { width:100%; }
+  .stu-grid { gap:12px; }
+  .week-bars { gap:8px; }
+  .paper { padding:14px 13px; }
+  .paper-title { font-size:14px; }
+
+  /* 长英文标题 / DOI 必须能断行，否则 390px 会横向溢出 */
+  .card, .mode-banner, .notice { overflow-wrap:anywhere; }
+}
+
+/* 动效尊重系统设置：关掉「减少动态效果」时不再做位移动画与过渡 */
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after {
+    animation-duration:.001ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.001ms !important;
+    scroll-behavior:auto !important;
+  }
+  .btn:active:not(:disabled) { transform:none; }
+}
