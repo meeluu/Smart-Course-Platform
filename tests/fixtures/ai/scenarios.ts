@@ -342,9 +342,9 @@ const s4: AiScenario = {
       },
       {
         taskId: 'tsk_4f9d13c6_2',
-        title: '召开启动组会，确定分工与里程碑时间',
+        title: '召开启动组会，确定分工与阶段时间',
         status: 'todo',
-        doneCriteria: '组会纪要：定义与数据条件的共识 + 里程碑时间表。',
+        doneCriteria: '组会纪要：定义与数据条件的共识 + 阶段时间表。',
         owner: null,
         milestone: '选题确认与文献调研',
         updatedAt: T2,

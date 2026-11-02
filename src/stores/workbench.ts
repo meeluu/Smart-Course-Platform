@@ -187,6 +187,23 @@ function normalizeNullable(value: string | null | undefined): string | null {
 }
 
 /**
+ * 旧版本把工程术语写进了本地项目的展示字段；只迁移系统生成的摘要，
+ * 不改学生自己填写的任务、记录或聊天正文。
+ */
+function normalizeLegacyDisplayText(value: string): string {
+  return value
+    .replace(/理解草稿/g, '材料要点')
+    .replace(/理解条目/g, '材料要点')
+    .replace(/理解内容/g, '材料要点')
+    .replace(/证据/g, '工作记录')
+    .replace(/里程碑/g, '阶段')
+    .replace(/AI 推荐检索方向/g, '模板预置的检索方向')
+    .replace(/本地规则生成的检索方向/g, '模板预置的检索方向')
+    .replace(/服务端兜底/g, '服务端规则回答')
+    .replace(/本地规则兜底/g, '本地规则回答')
+}
+
+/**
  * 把真实状态（`tasks` / `evidenceRecords` / `doubtRecords`）投影成旧页面读的字段。
  * 每次本地写入成功后调用：**真实数据只有一份**，这三个数组永远是派生结果。
  */
@@ -212,9 +229,27 @@ function syncProjectView(project: Project): void {
   if (kept.length !== project.understandingBlocks.length) project.understandingBlocks = kept
 
   syncMilestones(project)
-  project.steps = deriveStepViews(project)
+  project.ms = project.ms.map((milestone) => ({
+    ...milestone,
+    t: normalizeLegacyDisplayText(milestone.t),
+  }))
+  project.steps = deriveStepViews(project).map((step) => ({
+    ...step,
+    t: normalizeLegacyDisplayText(step.t),
+    why: normalizeLegacyDisplayText(step.why),
+    done: normalizeLegacyDisplayText(step.done),
+  }))
   project.evidence = deriveEvidenceViews(project)
   project.doubts = deriveDoubtTexts(project)
+  project.updated = normalizeLegacyDisplayText(project.updated)
+  project.papers = project.papers.map((paper) => ({
+    ...paper,
+    meta: normalizeLegacyDisplayText(paper.meta),
+    why: normalizeLegacyDisplayText(paper.why),
+  }))
+  project.chat = project.chat.map((message) =>
+    message.who === '服务端兜底' ? { ...message, who: '服务端规则回答' } : message,
+  )
 
   // 「AI 项目顾问」区说明文字同样只由真实数据推导：空白项目只说空白，
   // 有任务 / 证据 / 疑问 / 材料后立刻换成对应状态（不写死、不注入示例内容）。
@@ -488,7 +523,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       short: shortNameOf(name),
       group: `第 ${projects.value.length + 1} 组`,
       members: `${memberCount} 名成员`,
-      updated: '项目创建于今天 · 等待第一条证据',
+      updated: '项目创建于今天 · 等待第一条工作记录',
       // 空白项目：以下全部为空，等待用户自己填
       ms: [],
       banner: '',
@@ -641,8 +676,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         understandingBlocksOf(entry).some((candidate) => candidate.id === blockId),
     )
     return elsewhere
-      ? { ok: false, code: 'PROJECT_MISMATCH', message: '该理解草稿属于另一个项目' }
-      : { ok: false, code: 'NOT_FOUND', message: '理解草稿不存在' }
+      ? { ok: false, code: 'PROJECT_MISMATCH', message: '该材料要点属于另一个项目' }
+      : { ok: false, code: 'NOT_FOUND', message: '材料要点不存在' }
   }
 
   /** 归一化后的基本信息是否与已保存的一致（避免无变化时也递增 projectRevision） */
@@ -794,7 +829,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     if (!saved.ok) return saved
 
     if (record.state === 'parsed') {
-      toast(`${updated ? '已更新' : '已登记'}「${name}」，共 ${segments.length} 段，可生成理解草稿`)
+      toast(`${updated ? '已更新' : '已登记'}「${name}」，共 ${segments.length} 段，可生成材料要点`)
     } else {
       toast(`「${name}」解析失败：${record.failureReason ?? '请检查文件内容'}`)
     }
@@ -976,7 +1011,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   ): Promise<ActionResult<RequestUnderstandingResult>> {
     const project = current.value
     if (project === undefined) {
-      return localFailure('NOT_FOUND', '还没有项目，无法生成理解草稿')
+      return localFailure('NOT_FOUND', '还没有项目，无法生成材料要点')
     }
 
     const located = locateMaterial(input.materialId)
@@ -984,7 +1019,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
     const material = located.value
     if (material.state !== 'parsed') {
-      return localFailure('INVALID_INPUT', '这份材料没有解析成功，无法生成理解草稿')
+      return localFailure('INVALID_INPUT', '这份材料没有解析成功，无法生成材料要点')
     }
 
     const all = segmentsOfMaterial(project, material.materialId)
@@ -1073,7 +1108,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   ): ActionResult<RecordUnderstandingResult> {
     const project = current.value
     if (project === undefined) {
-      return localFailure('NOT_FOUND', '还没有项目，无法保存理解草稿')
+      return localFailure('NOT_FOUND', '还没有项目，无法保存材料要点')
     }
 
     const located = locateMaterial(input.materialId)
@@ -1081,7 +1116,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
     const material = located.value
     if (material.version !== input.materialVersion) {
-      return localFailure('STALE_RESPONSE', '材料版本已更新，请重新生成理解草稿')
+      return localFailure('STALE_RESPONSE', '材料版本已更新，请重新生成材料要点')
     }
 
     const timestamp = nowIso()
@@ -1190,8 +1225,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       } else {
         project.updated =
           next.length > 0
-            ? `最近更新：生成了 ${next.length} 条理解草稿`
-            : '最近更新：这份材料没有生成新的理解草稿'
+            ? `最近更新：生成了 ${next.length} 条材料要点`
+            : '最近更新：这份材料没有生成新的材料要点'
       }
     })
     if (!saved.ok) return saved
@@ -1199,7 +1234,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     if (noticeText !== '') {
       toast(noticeText)
     } else if (next.length > 0) {
-      toast(`已生成 ${next.length} 条理解草稿，确认后才会用于后续建议`)
+      toast(`已生成 ${next.length} 条材料要点，确认后才会用于后续建议`)
     }
 
     return {
@@ -1248,7 +1283,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   ): ActionResult<UnderstandingBlockResult> {
     const project = current.value
     if (project === undefined) {
-      return localFailure('NOT_FOUND', '还没有项目，无法确认理解草稿')
+      return localFailure('NOT_FOUND', '还没有项目，无法确认材料要点')
     }
 
     const located = locateUnderstandingBlock(input.blockId)
@@ -1262,7 +1297,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       }
     }
 
-    const applied = applyBlockStatus(block, 'confirmed', '最近更新：确认了一条理解草稿')
+    const applied = applyBlockStatus(block, 'confirmed', '最近更新：确认了一条材料要点')
     if (!applied.ok) return applied
 
     toast('已确认，后续建议会参考这条理解')
@@ -1302,7 +1337,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       target,
       target === 'modified'
         ? '最近更新：撤销确认（这条内容被改过，仍待确认）'
-        : '最近更新：撤销确认了一条理解草稿',
+        : '最近更新：撤销确认了一条材料要点',
     )
     if (!applied.ok) return applied
 
@@ -1320,7 +1355,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   ): ActionResult<UnderstandingBlockResult> {
     const project = current.value
     if (project === undefined) {
-      return localFailure('NOT_FOUND', '还没有项目，无法修改理解草稿')
+      return localFailure('NOT_FOUND', '还没有项目，无法修改材料要点')
     }
 
     const located = locateUnderstandingBlock(input.blockId)
@@ -1328,7 +1363,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
     const content = normalizeBlockContent(input.content)
     if (content === '') {
-      return localFailure('INVALID_INPUT', '理解草稿内容不能为空')
+      return localFailure('INVALID_INPUT', '材料要点内容不能为空')
     }
 
     const block = located.value
@@ -1347,7 +1382,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           : entry,
       )
       project.projectRevision += 1
-      project.updated = '最近更新：修改了一条理解草稿'
+      project.updated = '最近更新：修改了一条材料要点'
     })
     if (!saved.ok) return saved
 
@@ -1364,7 +1399,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   ): ActionResult<DeleteUnderstandingBlockResult> {
     const project = current.value
     if (project === undefined) {
-      return localFailure('NOT_FOUND', '还没有项目，无法删除理解草稿')
+      return localFailure('NOT_FOUND', '还没有项目，无法删除材料要点')
     }
 
     const located = locateUnderstandingBlock(input.blockId)
@@ -1376,11 +1411,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         (entry) => entry.id !== block.id,
       )
       project.projectRevision += 1
-      project.updated = '最近更新：删除了一条理解草稿'
+      project.updated = '最近更新：删除了一条材料要点'
     })
     if (!saved.ok) return saved
 
-    toast('已删除这条理解草稿')
+    toast('已删除这条材料要点')
     return { ok: true, data: { blockId: block.id, projectRevision: project.projectRevision } }
   }
 
@@ -1390,7 +1425,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   ): ActionResult<ConfirmAllUnderstandingResult> {
     const project = current.value
     if (project === undefined) {
-      return localFailure('NOT_FOUND', '还没有项目，无法确认理解草稿')
+      return localFailure('NOT_FOUND', '还没有项目，无法确认材料要点')
     }
 
     const located = locateMaterial(input.materialId)
@@ -1502,7 +1537,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           })
           if (!saved.ok) return saved
 
-          toast(`已认领任务「${draftTask.title}」，完成后请提交证据`)
+          toast(`已认领任务「${draftTask.title}」，完成后请提交工作记录`)
           return {
             ok: true,
             data: { taskId: draftTask.id, status: 'doing', projectRevision: project.projectRevision },
@@ -1510,7 +1545,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         }
 
         // 同键任务已在进行 / 已完成：幂等，不写盘、不递增 revision
-        toast('该任务已认领，完成后请提交证据')
+        toast('该任务已认领，完成后请提交工作记录')
         return {
           ok: true,
           data: { taskId: draftTask.id, status: draftTask.status, projectRevision: project.projectRevision },
@@ -1547,7 +1582,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
       if (!saved.ok) return saved
 
-      toast(`已新增任务「${title}」，完成后请提交证据`)
+      toast(`已新增任务「${title}」，完成后请提交工作记录`)
       return {
         ok: true,
         data: { taskId, status: 'doing', projectRevision: project.projectRevision },
@@ -1572,7 +1607,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
     // 已经是 doing：幂等，不改变状态、不递增 revision，但反馈要区别于首次认领
     if (task.status === 'doing') {
-      toast('该任务已认领，完成后请提交证据')
+      toast('该任务已认领，完成后请提交工作记录')
       return {
         ok: true,
         data: { taskId, status: 'doing', projectRevision: project.projectRevision },
@@ -1589,7 +1624,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
     if (!saved.ok) return saved
 
-    toast(`已认领任务「${task.title}」，完成后请提交证据`)
+    toast(`已认领任务「${task.title}」，完成后请提交工作记录`)
     return { ok: true, data: { taskId, status: 'doing', projectRevision: project.projectRevision } }
   }
 
@@ -1709,7 +1744,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   /**
    * 把顾问回答追加到聊天记录；写盘失败只撤销这一条，不影响已经发出的提问。
    *
-   * `who` 如实标注来源：模型回答署「AI 模型」，服务端规则兜底署「服务端兜底」，
+   * `who` 如实标注来源：模型回答署「AI 模型」，服务端规则回答署「服务端规则回答」，
    * 本地不编造任何回答（不用固定回复冒充模型）。
    *
    * `citations` 只接受适配层按契约 23.3 校验过的引用；没有引用时存空数组，
@@ -1728,7 +1763,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     const project = current.value
     if (project === undefined) return
     project.chat.push({
-      who: source === 'model' ? 'AI 模型' : '服务端兜底',
+      who: source === 'model' ? 'AI 模型' : '服务端规则回答',
       me: false,
       text,
       source,
@@ -1950,7 +1985,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   ): Promise<ActionResult<SubmitEvidenceResult>> {
     const project = current.value
     if (project === undefined) {
-      return localFailure('NOT_FOUND', '还没有项目，无法提交证据')
+      return localFailure('NOT_FOUND', '还没有项目，无法提交工作记录')
     }
 
     const normalized = normalizeEvidenceInput(project, input)
@@ -2060,7 +2095,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       if (project.weekly.length > 0) project.weekly[project.weekly.length - 1] += 1
 
       project.projectRevision += 1
-      project.updated = `最近更新：提交了证据 · 共 ${project.evidenceRecords.length} 条`
+      project.updated = `最近更新：提交了工作记录 · 共 ${project.evidenceRecords.length} 条`
     })
 
     if (!saved.ok) return saved
@@ -2075,7 +2110,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       projectRevision: project.projectRevision,
     }
 
-    toast(normalized.complete ? '证据已提交，任务已标记完成' : '证据已提交，AI 已更新项目状态')
+    toast(normalized.complete ? '工作记录已提交，任务已标记完成' : '工作记录已提交，AI 已更新项目状态')
 
     // 契约 5.2：证据先落盘，再请求建议；建议失败不回滚证据、不改 revision
     await refreshRecommendations()

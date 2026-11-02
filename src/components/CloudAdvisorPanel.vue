@@ -22,11 +22,11 @@ const suggestions = computed(() => advisor.value.suggestions)
 const ready = computed(() => advisor.value.status === 'ready')
 
 const FALLBACK_TEXT: Record<AdvisorFallbackReason, string> = {
-  MODEL_TIMEOUT: '模型响应超时，本次建议由服务端规则生成。',
-  MODEL_UNAVAILABLE: '模型服务暂时不可用，本次建议由服务端规则生成。',
-  MODEL_NOT_CONFIGURED: '当前环境没有配置模型，本次建议由服务端规则生成。',
-  INVALID_MODEL_OUTPUT: '模型输出不合规，本次建议由服务端规则生成。',
-  RATE_LIMITED: '请求过于频繁，本次建议由服务端规则生成。',
+  MODEL_TIMEOUT: '模型响应超时，本次建议由服务端规则回答。',
+  MODEL_UNAVAILABLE: '模型服务暂时不可用，本次建议由服务端规则回答。',
+  MODEL_NOT_CONFIGURED: '当前环境没有配置模型，本次建议由服务端规则回答。',
+  INVALID_MODEL_OUTPUT: '模型输出不合规，本次建议由服务端规则回答。',
+  RATE_LIMITED: '请求过于频繁，本次建议由服务端规则回答。',
 }
 
 const sourceText = computed(() => {
@@ -38,8 +38,8 @@ const sourceText = computed(() => {
 
 const fallbackText = computed(() => {
   const reason = advisor.value.fallbackReason
-  if (reason === null) return '本次未使用模型生成，建议由服务端规则生成。'
-  return FALLBACK_TEXT[reason] ?? '本次未使用模型生成，建议由服务端规则生成。'
+  if (reason === null) return '本次未使用模型生成，建议由服务端规则回答。'
+  return FALLBACK_TEXT[reason] ?? '本次未使用模型生成，建议由服务端规则回答。'
 })
 
 const failureMessage = computed(() => {

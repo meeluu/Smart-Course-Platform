@@ -130,9 +130,9 @@ defineExpose({ reset })
         type="submit"
         :disabled="props.submitting || (mode === 'complete' && selectedTask?.status !== 'doing')"
       >
-        {{ props.submitting ? '保存中…' : mode === 'complete' ? '保存证据并确认完成' : '只保存这次进展' }}
+        {{ props.submitting ? '保存中…' : mode === 'complete' ? '保存工作记录并确认完成' : '只保存这次进展' }}
       </button>
-      <span class="form-note">保存证据后，系统会再请求下一步建议。</span>
+      <span class="form-note">保存工作记录后，系统会再请求下一步建议。</span>
     </div>
   </form>
 </template>

@@ -39,11 +39,11 @@ const SOURCE_TEXT: Record<'model' | 'fallback', string> = {
 }
 
 const FALLBACK_TEXT: Record<AdvisorFallbackReason, string> = {
-  MODEL_TIMEOUT: '模型响应超时，这条回答由服务端规则生成',
-  MODEL_UNAVAILABLE: '模型服务暂时不可用，这条回答由服务端规则生成',
-  MODEL_NOT_CONFIGURED: '当前环境没有配置模型，这条回答由服务端规则生成',
-  INVALID_MODEL_OUTPUT: '模型输出不合规，这条回答由服务端规则生成',
-  RATE_LIMITED: '请求过于频繁，这条回答由服务端规则生成',
+  MODEL_TIMEOUT: '模型响应超时，这条回答由服务端规则回答',
+  MODEL_UNAVAILABLE: '模型服务暂时不可用，这条回答由服务端规则回答',
+  MODEL_NOT_CONFIGURED: '当前环境没有配置模型，这条回答由服务端规则回答',
+  INVALID_MODEL_OUTPUT: '模型输出不合规，这条回答由服务端规则回答',
+  RATE_LIMITED: '请求过于频繁，这条回答由服务端规则回答',
 }
 
 /**
@@ -58,8 +58,8 @@ function sourceText(message: (typeof messages.value)[number]): string {
 function fallbackText(message: (typeof messages.value)[number]): string | null {
   if (message.source !== 'fallback') return null
   const reason = message.fallbackReason as AdvisorFallbackReason | null | undefined
-  if (reason === null || reason === undefined) return '这条回答由服务端规则生成'
-  return FALLBACK_TEXT[reason] ?? '这条回答由服务端规则生成'
+  if (reason === null || reason === undefined) return '这条回答由服务端规则回答'
+  return FALLBACK_TEXT[reason] ?? '这条回答由服务端规则回答'
 }
 
 /**

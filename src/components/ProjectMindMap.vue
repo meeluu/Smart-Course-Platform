@@ -79,7 +79,7 @@ const svg = computed(() => {
       `<text x="650" y="${yy + 41}" text-anchor="middle" font-size="10.5" fill="#534AB7">${sub}</text>`
   }
 
-  out += `<text x="${msX + msW / 2}" y="14" text-anchor="middle" font-size="11.5" font-weight="600" fill="#888780">里程碑</text>`
+  out += `<text x="${msX + msW / 2}" y="14" text-anchor="middle" font-size="11.5" font-weight="600" fill="#888780">阶段</text>`
   out += '<text x="650" y="14" text-anchor="middle" font-size="11.5" font-weight="600" fill="#888780">当前实际步骤</text>'
   out += '</svg>'
   return out

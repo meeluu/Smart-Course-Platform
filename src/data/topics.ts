@@ -63,10 +63,10 @@ export const TEMPLATES: Record<string, Template> = {
         done: '确定海区范围 + 确认至少一个数据源可正常下载该区域的 SST 数据。',
       },
       {
-        t: '召开第一次组会，明确分工与里程碑时间点',
+        t: '召开第一次组会，明确分工与阶段时间点',
         owner: '成员C',
-        why: '趁文献调研的结论还热乎，把五个里程碑的目标日期和负责人定下来，后续 AI 顾问才能帮你们盯进度。',
-        done: '一份组会纪要：里程碑时间表 + 每人认领的第一个任务。',
+        why: '趁文献调研的结论还热乎，把五个阶段的目标日期和负责人定下来，后续 AI 顾问才能帮你们盯进度。',
+        done: '一份组会纪要：阶段时间表 + 每人认领的第一个任务。',
       },
     ],
     papers: [
@@ -87,7 +87,7 @@ export const TEMPLATES: Record<string, Template> = {
       {
         title: 'SST / SSH 卫星数据的获取与预处理入门',
         meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
-        why: '为下一个里程碑「数据获取与预处理」提前储备。',
+        why: '为下一个阶段「数据获取与预处理」提前储备。',
         prompt:
           '请介绍海表温度（SST）和海面高度（SSH）卫星数据的主要获取平台：1) 各平台数据分辨率与覆盖 2) NetCDF 格式的读取与预处理工具（Python）3) 云掩膜与质量控制的基本做法。',
       },
@@ -202,7 +202,7 @@ export const TEMPLATES: Record<string, Template> = {
       {
         title: 'MODIS / VIIRS 水色数据获取与处理入门',
         meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
-        why: '为数据获取里程碑储备。',
+        why: '为数据获取阶段储备。',
         prompt:
           '请介绍 MODIS-Aqua 与 VIIRS 叶绿素数据产品：1) L2/L3 产品区别与获取平台 2) 数据格式与读取（Python）3) 常用质量控制标记。',
       },
@@ -372,9 +372,9 @@ export const TEMPLATES: Record<string, Template> = {
       {
         title: '项目式学习（PBL）中的过程性评价与学习分析',
         meta: '模板预置的检索方向 · 用提示词到 GPT 检索',
-        why: '证据四要素和过程留痕的设计要有教育测量依据。',
+        why: '工作记录四要素和过程留痕的设计要有教育测量依据。',
         prompt:
-          '请检索 project-based learning analytics / process-oriented assessment 研究：1) 过程性数据的采集维度 2) 基于过程证据的评价方法 3) 小组协作中的贡献度分析。',
+          '请检索 project-based learning analytics / process-oriented assessment 研究：1) 过程性数据的采集维度 2) 基于过程记录的评价方法 3) 小组协作中的贡献度分析。',
       },
     ],
   },
@@ -462,10 +462,10 @@ export const TEMPLATES: Record<string, Template> = {
         done: '数据摸底表：每个因子的来源、时间/空间分辨率、覆盖年限、缺测情况。',
       },
       {
-        t: '召开启动组会，确定分工与里程碑时间',
+        t: '召开启动组会，确定分工与阶段时间',
         owner: '成员C',
-        why: '定义调研和数据摸底的结果需要在组内对齐，并把五个里程碑的时间点定下来。项目初期把节奏定好，后面停滞风险会小很多。',
-        done: '组会纪要：定义与数据条件的共识 + 里程碑时间表。',
+        why: '定义调研和数据摸底的结果需要在组内对齐，并把五个阶段的时间点定下来。项目初期把节奏定好，后面停滞风险会小很多。',
+        done: '组会纪要：定义与数据条件的共识 + 阶段时间表。',
       },
     ],
     papers: [

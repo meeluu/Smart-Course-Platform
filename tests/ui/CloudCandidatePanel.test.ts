@@ -95,14 +95,14 @@ describe('CloudCandidatePanel', () => {
     expect(mocked.cloud.generateCandidates).toHaveBeenCalledWith({ maxCandidates: 2 })
   })
 
-  it('fallback 显示 notice 并标注服务端规则生成', () => {
+  it('fallback 显示 notice 并标注服务端规则回答', () => {
     mocked.cloud.candidates = [candidate()]
     mocked.cloud.candidatesStatus = 'ready'
     mocked.cloud.candidatesNotice = '模型未参与，以下为按项目资料生成的规则候选。'
 
     const wrapper = mount(CloudCandidatePanel)
 
-    expect(wrapper.text()).toContain('服务端规则生成')
+    expect(wrapper.text()).toContain('服务端规则回答')
     expect(wrapper.text()).toContain('模型未参与，以下为按项目资料生成的规则候选。')
     expect(wrapper.findAll('.candidate-card')).toHaveLength(1)
   })

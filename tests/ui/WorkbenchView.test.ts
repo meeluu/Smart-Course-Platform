@@ -678,8 +678,8 @@ describe('WorkbenchView', () => {
     await wrapper.get('form.evidence-form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.get('.evidence-save-status').text()).toContain('证据已保存')
-    expect(wrapper.get('.evidence-save-status').text()).toContain('建议暂时使用规则结果')
+    expect(wrapper.get('.evidence-save-status').text()).toContain('工作记录已保存')
+    expect(wrapper.get('.evidence-save-status').text()).toContain('建议暂时使用本地规则回答')
   })
 
   it('keeps the evidence form after a failed store submission', async () => {
@@ -725,7 +725,7 @@ describe('WorkbenchView', () => {
 
     // 地图本身（SVG）只在地图页渲染，工作台不再重复画一遍
     expect(wrapper.find('svg').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('左侧为里程碑，右侧为任务')
+    expect(wrapper.text()).not.toContain('左侧为阶段，右侧为任务')
 
     routerMock.push.mockClear()
     const entry = wrapper.findAll('button').find((button) => button.text().includes('查看项目地图'))
@@ -751,8 +751,8 @@ describe('WorkbenchView', () => {
     expect(text).toContain('AI 下一步建议')
     expect(text).toContain('为什么现在做')
     expect(text).toContain('完成标准')
-    expect(text).toContain('参考建议')
-    expect(text).toContain('AI 会结合当前项目的任务、证据、疑问和历史对话回答')
+    expect(text).toContain('本地规则回答')
+    expect(text).toContain('AI 会结合当前项目的任务、工作记录、疑问和历史对话回答')
     // 失败时也不能把错误码端上来
     expect(text).not.toContain('INVALID_INPUT')
     expect(text).not.toContain('NETWORK_ERROR')
@@ -820,7 +820,7 @@ describe('WorkbenchView', () => {
     return wrapper.get(`#${panelId}`).attributes('hidden') !== undefined
   }
 
-  it('M2-A：基本信息、材料入口与理解草稿都在「项目资料」，推进页不再堆这些内容', async () => {
+  it('M2-A：基本信息、材料入口与材料要点都在「项目资料」，推进页不再堆这些内容', async () => {
     const store = freshStore()
     createProject(store, 'M2-A 界面项目')
     const wrapper = mount(WorkbenchView)
@@ -891,7 +891,7 @@ describe('WorkbenchView', () => {
     expect(text).toContain('实验手册.md')
     expect(text).toContain('已解析')
     expect(text).toContain('2 个片段')
-    expect(text).toContain('生成理解草稿')
+    expect(text).toContain('生成材料要点')
     expect(wrapper.get('.mu-notice').text()).toContain('解析成功')
   })
 
@@ -1000,7 +1000,7 @@ describe('WorkbenchView', () => {
     await goToDataTab(wrapper)
 
     await chooseMaterialFile(wrapper, new File(['# 实验手册\n第一段正文。'], '实验手册.md'))
-    const generate = wrapper.findAll('button').find((button) => button.text() === '生成理解草稿')
+    const generate = wrapper.findAll('button').find((button) => button.text() === '生成材料要点')
     expect(generate).toBeDefined()
     await generate?.trigger('click')
     await flushPromises()
@@ -1138,7 +1138,7 @@ describe('WorkbenchView', () => {
     expect(chat).toHaveLength(2)
     expect(chat[1]?.who).toBe('AI 模型')
     expect(chat[1]?.source).toBe('model')
-    expect(wrapper.text()).toContain('AI 生成')
+    expect(wrapper.text()).toContain('AI 模型回答')
     expect(wrapper.find('.chat-error').exists()).toBe(false)
   })
 
@@ -1288,7 +1288,7 @@ describe('WorkbenchView', () => {
   /* ------------------------------------------- 工作台布局：推进 / 资料 */
 
   /**
-   * 多材料场景替身：上传成功，理解草稿的文案带上材料名，便于区分是哪一份。
+   * 多材料场景替身：上传成功，材料要点的文案带上材料名，便于区分是哪一份。
    * 请求体里的身份字段原样回显，否则会被判成过期响应。
    */
   function stubMaterialPipeline(): void {
@@ -1350,7 +1350,7 @@ describe('WorkbenchView', () => {
     await flushPromises()
   }
 
-  /** 点详情区里的某个按钮（生成草稿 / 确认 / 修改…） */
+  /** 点详情区里的某个按钮（生成材料要点 / 确认 / 修改…） */
   async function clickButton(wrapper: ReturnType<typeof mount>, label: string): Promise<void> {
     const button = wrapper.findAll('button').find((entry) => entry.text() === label)
     expect(button).toBeDefined()
@@ -1369,7 +1369,7 @@ describe('WorkbenchView', () => {
 
     const progress = wrapper.get('#wb-panel-progress')
     expect(progress.text()).toContain('AI 下一步建议')
-    expect(progress.text()).toContain('提交步骤证据')
+    expect(progress.text()).toContain('提交工作记录')
     expect(progress.text()).toContain('向顾问提问')
     expect(progress.text()).toContain('查看项目地图')
 
@@ -1444,9 +1444,9 @@ describe('WorkbenchView', () => {
     expect(store.materials).toHaveLength(2)
 
     await pickMaterial(wrapper, '材料一.md')
-    await clickButton(wrapper, '生成理解草稿')
+    await clickButton(wrapper, '生成材料要点')
     await pickMaterial(wrapper, '材料二.md')
-    await clickButton(wrapper, '生成理解草稿')
+    await clickButton(wrapper, '生成材料要点')
 
     // 回到材料一，改一半不保存
     await pickMaterial(wrapper, '材料一.md')
@@ -1483,10 +1483,10 @@ describe('WorkbenchView', () => {
 
     // 甲：生成并确认；乙：只生成，保持待确认
     await pickMaterial(wrapper, '甲材料.md')
-    await clickButton(wrapper, '生成理解草稿')
+    await clickButton(wrapper, '生成材料要点')
     await clickButton(wrapper, '确认')
     await pickMaterial(wrapper, '乙材料.md')
-    await clickButton(wrapper, '生成理解草稿')
+    await clickButton(wrapper, '生成材料要点')
 
     expect(store.confirmedUnderstandingBlocks).toHaveLength(1)
     expect(store.pendingUnderstandingBlocks).toHaveLength(1)
@@ -1515,7 +1515,7 @@ describe('WorkbenchView', () => {
     await goToDataTab(wrapper)
 
     await chooseMaterialFile(wrapper, new File(['# 甲\n正文。'], '项目甲材料.md'))
-    await clickButton(wrapper, '生成理解草稿')
+    await clickButton(wrapper, '生成材料要点')
     expect(wrapper.get('#wb-panel-progress').text()).toContain('材料 1 份 · 待确认 1 条')
 
     // 切到新项目：不能残留上一个项目的材料、草稿与摘要
@@ -1551,9 +1551,9 @@ describe('WorkbenchView', () => {
     await chooseMaterialFile(wrapper, new File(['# 材料一\n正文。'], '材料一.md'))
     await chooseMaterialFile(wrapper, new File(['# 材料二\n正文。'], '材料二.md'))
     await pickMaterial(wrapper, '材料一.md')
-    await clickButton(wrapper, '生成理解草稿')
+    await clickButton(wrapper, '生成材料要点')
     await pickMaterial(wrapper, '材料二.md')
-    await clickButton(wrapper, '生成理解草稿')
+    await clickButton(wrapper, '生成材料要点')
 
     return { store, wrapper }
   }
@@ -1577,7 +1577,7 @@ describe('WorkbenchView', () => {
     expect(wrapper.get('#wb-data-detail').text()).toContain('版本 2')
 
     // 新版本重新生成草稿：同 itemId 的条目又出现了
-    await clickButton(wrapper, '生成理解草稿')
+    await clickButton(wrapper, '生成材料要点')
     await pickMaterial(wrapper, '材料二.md')
     await pickMaterial(wrapper, '材料一.md')
 
@@ -1664,10 +1664,10 @@ describe('WorkbenchView', () => {
 
     // 甲的草稿确认掉；乙的草稿改一半（modified，仍未确认）
     await pickMaterial(wrapper, '甲材料.md')
-    await clickButton(wrapper, '生成理解草稿')
+    await clickButton(wrapper, '生成材料要点')
     await clickButton(wrapper, '确认')
     await pickMaterial(wrapper, '乙材料.md')
-    await clickButton(wrapper, '生成理解草稿')
+    await clickButton(wrapper, '生成材料要点')
     await clickButton(wrapper, '修改')
     await wrapper.get('.dc-edit').setValue('乙材料里改过但还没确认的内容')
     await clickButton(wrapper, '保存修改')

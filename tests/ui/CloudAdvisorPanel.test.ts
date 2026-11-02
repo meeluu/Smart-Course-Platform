@@ -109,7 +109,7 @@ describe('CloudAdvisorPanel', () => {
     await vi.waitFor(() => {
       expect(wrapper.text()).toContain('服务端规则回答')
     })
-    expect(wrapper.text()).toContain('模型响应超时，本次建议由服务端规则生成。')
+      expect(wrapper.text()).toContain('模型响应超时，本次建议由服务端规则回答。')
     expect(wrapper.text()).toContain('先补齐样例数据说明')
     expect(wrapper.find('.advisor-suggestion').exists()).toBe(true)
   })

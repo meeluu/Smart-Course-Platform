@@ -34,8 +34,8 @@ const emit = defineEmits<{ claim: [] }>()
 /** 契约 5.2：来源要说人话，不显示 model / local-rule 这类内部值 */
 const SOURCE_TEXT: Record<RecommendationSource, string> = {
   model: 'AI 模型生成',
-  fallback: '服务端规则生成',
-  'local-rule': '本地规则生成',
+  fallback: '服务端规则回答',
+  'local-rule': '本地规则回答',
 }
 
 const SOURCE_STYLE: Record<RecommendationSource, string> = {
@@ -78,12 +78,12 @@ const basisCount = computed(() => props.evidence.length + props.doubts.length)
     <details class="basis">
       <summary>
         依据
-        <span v-if="basisCount > 0">（证据 {{ evidence.length }} · 疑问 {{ doubts.length }}）</span>
+        <span v-if="basisCount > 0">（工作记录 {{ evidence.length }} · 疑问 {{ doubts.length }}）</span>
         <span v-else>（这条建议没有引用具体依据）</span>
       </summary>
       <div class="basis-body">
         <div v-if="evidence.length" class="basis-group">
-          <div class="basis-label">依据的证据</div>
+          <div class="basis-label">依据的工作记录</div>
           <div v-for="item in evidence" :key="item.id" class="basis-item">
             <span v-if="item.time" class="basis-time">{{ item.time }}</span>{{ item.text }}
           </div>
@@ -95,7 +95,7 @@ const basisCount = computed(() => props.evidence.length + props.doubts.length)
         </div>
 
         <div v-if="basisCount === 0" class="basis-item">
-          这条建议来自项目当前状态的整体判断，没有指向某条证据或疑问。
+          这条建议来自项目当前状态的整体判断，没有指向某条工作记录或疑问。
         </div>
       </div>
     </details>
@@ -110,7 +110,7 @@ const basisCount = computed(() => props.evidence.length + props.doubts.length)
       </button>
 
       <span v-if="claimState === 'claimed'" class="hint">
-        已认领：任务已进入「AI 项目顾问」，状态为进行中。做完记得提交证据。
+        已认领：任务已进入「AI 项目顾问」，状态为进行中。做完记得提交工作记录。
       </span>
       <span v-else-if="claimState === 'done'" class="hint">
         这条建议对应的任务已经完成，不用再认领。

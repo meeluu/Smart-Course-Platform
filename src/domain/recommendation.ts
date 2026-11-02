@@ -748,7 +748,7 @@ export const MATERIAL_ERROR_MESSAGES: Record<
   MODEL_TIMEOUT: '模型调用超时，材料已保留，请稍后重试',
   INVALID_MODEL_OUTPUT: '模型返回内容不合法，请稍后重试',
   MODEL_UNAVAILABLE: '模型服务暂不可用，请稍后重试',
-  MODEL_NOT_CONFIGURED: '服务端未配置模型密钥，暂时无法生成理解草稿',
+  MODEL_NOT_CONFIGURED: '服务端未配置模型密钥，暂时无法生成材料要点',
 }
 
 /** 契约 16（+ 6.1 / 6.2）：材料与理解相关错误码的 retryable 兜底值（响应缺字段时使用） */

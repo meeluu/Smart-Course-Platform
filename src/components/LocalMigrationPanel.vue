@@ -15,7 +15,7 @@ const emit = defineEmits<{
 }>()
 
 function candidateLabel(candidate: LocalMigrationCandidate): string {
-  return `${candidate.name} · ${candidate.taskCount} 个任务 · ${candidate.evidenceCount} 条证据`
+  return `${candidate.name} · ${candidate.taskCount} 个任务 · ${candidate.evidenceCount} 条工作记录`
 }
 </script>
 

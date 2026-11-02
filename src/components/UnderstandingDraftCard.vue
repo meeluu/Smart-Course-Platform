@@ -306,7 +306,7 @@ function confirmAll(): void {
 
 <template>
   <div class="dc">
-    <p v-if="props.loading" class="dc-loading" role="status">正在生成理解草稿…</p>
+    <p v-if="props.loading" class="dc-loading" role="status">正在生成材料要点…</p>
 
     <p v-if="props.errorText" class="dc-error" role="alert">{{ props.errorText }}</p>
 
@@ -402,7 +402,7 @@ function confirmAll(): void {
 
     <template v-else>
       <div class="empty dc-empty">
-        <p v-if="props.hasMaterial">材料已登记，但还没有理解草稿。</p>
+        <p v-if="props.hasMaterial">材料已登记，但还没有材料要点。</p>
         <p v-else>还没有材料。先在「项目资料」里上传 MD 或 TXT 文件。</p>
         <p v-if="props.emptyHint" class="dc-hint">{{ props.emptyHint }}</p>
       </div>
@@ -415,7 +415,7 @@ function confirmAll(): void {
           :disabled="actionsDisabled"
           @click="emit('generate')"
         >
-          生成理解草稿
+          生成材料要点
         </button>
         <span class="dc-foot-hint">草稿里的每条内容都需要你确认后才会作为项目依据。</span>
       </div>

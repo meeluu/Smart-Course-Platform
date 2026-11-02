@@ -1630,7 +1630,7 @@ describe('项目状态提示：banner 随真实数据更新，不写死空白项
     expect(result.ok).toBe(true)
     const banner = currentProject(store).banner
     expect(banner).not.toContain('空白项目')
-    expect(banner).toContain('1 条证据')
+    expect(banner).toContain('1 条工作记录')
   })
 
   it('提出疑问（仍有不确定）后空白提示消失', async () => {
@@ -1688,7 +1688,7 @@ describe('向顾问提问：真实聊天接口', () => {
     const store = freshStore()
     createBlankProjectOrThrow(store)
     await store.sendChat('模型不可用时怎么办？')
-    expect(currentProject(store).chat[1]?.who).toBe('服务端兜底')
+    expect(currentProject(store).chat[1]?.who).toBe('服务端规则回答')
     expect(currentProject(store).chat[1]?.fallbackReason).toBe('MODEL_TIMEOUT')
   })
 

@@ -5,7 +5,7 @@ import type { DraftItemView, DraftSourceView, UnderstandingDraftView } from '@/c
 import { expectNoInternalTokens, visibleTextOf } from './visibleText'
 
 /**
- * 材料理解草稿卡片（雍-3 / 雍-4）
+ * 材料要点卡片（雍-3 / 雍-4）
  * ----------------------------------------------------------------------------
  * 重点验证界面规则：
  *   1. 默认待确认；修改后仍是待确认，编辑不等于确认；
@@ -220,21 +220,21 @@ describe('UnderstandingDraftCard', () => {
       props: {
         draft: view,
         source: 'fallback',
-        notice: '模型调用超时，未生成理解草稿；材料已解析成功，可以先手动登记要点，稍后重新生成。',
+        notice: '模型调用超时，未生成材料要点；材料已解析成功，可以先手动登记要点，稍后重新生成。',
       },
     })
 
     expect(wrapper.text()).toContain('模型调用超时')
-    expect(wrapper.text()).toContain('服务端规则兜底')
+    expect(wrapper.text()).toContain('服务端规则回答')
     expect(wrapper.text()).not.toContain('用 ERA5')
   })
 
   it('生成失败时显示中文原因并提供重试', async () => {
     const wrapper = mount(UnderstandingDraftCard, {
-      props: { draft: null, errorText: '理解草稿没有生成成功，请稍后重试', hasMaterial: true },
+      props: { draft: null, errorText: '材料要点没有生成成功，请稍后重试', hasMaterial: true },
     })
 
-    expect(wrapper.get('[role="alert"]').text()).toContain('理解草稿没有生成成功')
+    expect(wrapper.get('[role="alert"]').text()).toContain('材料要点没有生成成功')
     await buttonWithText(wrapper, '重试')?.trigger('click')
     expect(wrapper.emitted('retry')).toHaveLength(1)
   })
@@ -338,7 +338,7 @@ describe('UnderstandingDraftCard', () => {
       props: { draft: null, loading: true, hasMaterial: true },
     })
 
-    expect(wrapper.text()).toContain('正在生成理解草稿')
+    expect(wrapper.text()).toContain('正在生成材料要点')
     expect(buttonWithText(wrapper, '整份确认')).toBeUndefined()
   })
 
