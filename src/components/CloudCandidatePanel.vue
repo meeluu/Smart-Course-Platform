@@ -100,7 +100,7 @@ defineExpose({ generate })
   <section class="card candidate-panel">
     <div class="card-h">
       <span>阶段候选</span>
-      <span v-if="cloud.candidatesNotice" class="badge">服务端规则生成</span>
+      <span v-if="cloud.candidatesNotice" class="badge">服务端规则回答</span>
     </div>
     <div class="card-b">
       <p class="candidate-hint">

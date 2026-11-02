@@ -932,8 +932,12 @@ export interface CloudChatMessage {
    * 但契约 30.2 的**历史消息没有这个字段**，恢复时保持 `undefined`，
    * 不得伪造成 `'model'`（那会让界面把历史消息标成「AI 模型回答」）。
    */
-  source: 'model' | 'fallback'
-  fallbackReason: string | null
+  source?: 'model' | 'fallback'
+  /**
+   * 契约 5.1：兜底原因码。与 `source` 一样只在实时响应里有；
+   * 契约 30.2 的历史消息不落库该字段，恢复时保持 `undefined`。
+   */
+  fallbackReason?: string | null
   /** 契约 23.7：只包含已确认片段；v1/v2 响应没有该字段 */
   citations: CloudCitation[]
   createdAt: string

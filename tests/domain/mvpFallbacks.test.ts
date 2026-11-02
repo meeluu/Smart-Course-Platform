@@ -92,7 +92,7 @@ describe('已完成任务不会被再次建议', () => {
 
     expect(result).toHaveLength(1)
     expect(result[0]?.existingTaskId).toBeNull()
-    expect(result[0]?.title).toBe(`推进当前里程碑：${MILESTONE}`)
+    expect(result[0]?.title).toBe(`推进当前阶段：${MILESTONE}`)
   })
 
   it('doing、todo 与 done 混合时优先进行中的任务，done 从不出现', () => {
@@ -141,7 +141,7 @@ describe('建议顺序与条数上限', () => {
       }),
     )
 
-    expect(result.map((item) => item.title)).toContain('先提交第一条证据')
+    expect(result.map((item) => item.title)).toContain('先提交第一条工作记录')
   })
 })
 

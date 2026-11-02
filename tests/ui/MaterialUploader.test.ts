@@ -30,7 +30,7 @@ describe('MaterialUploader', () => {
     expect(text).toContain('只支持 MD、TXT')
     expect(text).toContain('1 MB')
     expect(text).toContain('选择文件')
-    expect(text).toContain('生成理解草稿')
+    expect(text).toContain('生成材料要点')
   })
 
   it('选择合法 md 后发出上传事件，携带原始文件与类型', async () => {
@@ -142,10 +142,10 @@ describe('MaterialUploader', () => {
     expect(wrapper.text()).toContain('还没有选择文件')
 
     await wrapper.setProps({ stage: 'parsed' })
-    expect(wrapper.text()).toContain('正文已解析，可以生成理解草稿')
+    expect(wrapper.text()).toContain('正文已解析，可以生成材料要点')
 
     await wrapper.setProps({ stage: 'understanding' })
-    expect(wrapper.text()).toContain('正在生成理解草稿')
+    expect(wrapper.text()).toContain('正在生成材料要点')
   })
 
   it('用户可见文本不出现内部字段名', () => {

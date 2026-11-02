@@ -79,7 +79,7 @@ function submit() {
 
         <div class="ai-note">
           材料怎么用：工作台支持上传 MD 或 TXT（单个文件不超过 1
-          MB），上传后会显示解析状态与理解草稿，逐条确认后才作为项目依据。 CSV / XLSX 将在下一批支持，PDF /
+          MB），上传后会显示解析状态与材料要点，逐条确认后才作为项目依据。 CSV / XLSX 将在下一批支持，PDF /
           DOCX / ZIP 将在后续版本支持。
         </div>
 

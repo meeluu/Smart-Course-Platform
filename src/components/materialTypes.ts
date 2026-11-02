@@ -147,8 +147,8 @@ export type DraftSource = 'model' | 'fallback' | 'local-rule'
 
 export const DRAFT_SOURCE_TEXT: Record<DraftSource, string> = {
   model: 'AI 模型生成',
-  fallback: '服务端规则兜底',
-  'local-rule': '本地规则',
+  fallback: '服务端规则回答',
+  'local-rule': '本地规则回答',
 }
 
 /**

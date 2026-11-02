@@ -65,7 +65,7 @@ function switchProject(event: Event) {
 
   <template v-else>
   <div class="mode-banner">
-    <b>项目地图</b>把当前项目的里程碑和任务状态摊在一张图上：左侧是阶段，右侧是正在推进的任务。
+    <b>项目地图</b>把当前项目的阶段和任务状态摊在一张图上：左侧是阶段，右侧是正在推进的任务。
   </div>
 
   <!-- 还没有项目：给出创建提示 -->
@@ -73,7 +73,7 @@ function switchProject(event: Event) {
     <div class="card-h">还没有项目</div>
     <div class="card-b">
       <div class="empty" style="padding-top:0;">
-        还没有可以展示的项目。先到「工作台」创建项目，地图会显示这个项目的里程碑与任务状态。
+        还没有可以展示的项目。先到「工作台」创建项目，地图会显示这个项目的阶段与任务状态。
       </div>
       <button class="btn primary" @click="router.push('/')">去工作台创建项目</button>
     </div>
@@ -105,7 +105,7 @@ function switchProject(event: Event) {
         <span
           class="tag"
           style="background:#EEEDFE;color:#3C3489;border:1px solid #CECBF6;"
-        >{{ milestones.length ? `${milestones.length} 个里程碑` : '暂无里程碑' }}</span>
+        >{{ milestones.length ? `${milestones.length} 个阶段` : '暂无阶段' }}</span>
       </div>
       <div class="card-b">
         <div v-if="!tasks.length" class="empty" style="padding:4px 0;">
@@ -115,7 +115,7 @@ function switchProject(event: Event) {
         <template v-else>
           <ProjectMindMap :project="project" />
           <div class="map-legend">
-            左侧为里程碑，右侧为任务 · 绿=已完成，蓝=进行中，灰=未开始
+            左侧为阶段，右侧为任务 · 绿=已完成，蓝=进行中，灰=未开始
           </div>
         </template>
       </div>
@@ -124,14 +124,14 @@ function switchProject(event: Event) {
     <div class="map-grid">
       <div class="card">
         <div class="card-h">
-          里程碑
+          阶段
           <span class="tag" style="background:#f1efe8;color:#5f5e5a;border:1px solid #d3d1c7;">
             {{ milestones.length }}
           </span>
         </div>
         <div class="card-b">
           <div v-if="!milestones.length" class="empty" style="padding:4px 0;">
-            这个项目还没有里程碑。上传材料、写下项目目标或提交第一条进展后，
+            这个项目还没有阶段。上传材料、写下项目目标或提交第一条进展后，
             AI 会给出阶段划分。
           </div>
           <div v-for="(milestone, index) in milestones" :key="`${index}-${milestone.t}`" class="milestone">

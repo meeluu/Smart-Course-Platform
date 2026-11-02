@@ -6,10 +6,28 @@ const mocked = vi.hoisted(() => ({
   platform: {
     cloudProject: {
       projectId: 'project-1',
+      ownerUserId: 'user-1',
       name: '测试云端项目',
       short: '测试',
-      profile: { goal: '验证阶段流程' },
-      taskStats: { total: 2, done: 0 },
+      profile: {
+        goal: '验证阶段流程',
+        expectedOutcome: null,
+        memberNames: [],
+        researchPeriod: null,
+        scope: null,
+        outOfScope: null,
+      },
+      status: 'active',
+      visibility: 'private',
+      projectRevision: 3,
+      currentMilestoneId: 'milestone-1',
+      currentMilestone: '资料整理',
+      createdAt: '2026-10-21T00:00:00.000Z',
+      updatedAt: '2026-10-22T00:00:00.000Z',
+      archivedAt: null,
+      deletedAt: null,
+      milestones: [],
+      taskStats: { total: 2, done: 0, doing: 0, todo: 2, progress: 0 },
     },
     cloudProjects: [{ projectId: 'project-1', name: '测试云端项目' }],
     selectCloudProject: vi.fn(),
@@ -225,7 +243,7 @@ describe('CloudProjectWorkbench', () => {
     const wrapper = mount(CloudProjectWorkbench, { attachTo: host })
     const actions = wrapper.findAll('.empty-actions button')
 
-    expect(actions.map((item) => item.text())).toEqual(['新建里程碑', '根据项目资料生成候选'])
+    expect(actions.map((item) => item.text())).toEqual(['新建阶段', '根据项目资料生成候选'])
     await actions[0]?.trigger('click')
     await vi.waitFor(() => {
       expect(document.activeElement?.getAttribute('aria-label')).toBe('阶段名称')
@@ -399,6 +417,53 @@ describe('CloudProjectWorkbench', () => {
     const wrapper = mount(CloudProjectWorkbench)
 
     expect(wrapper.get('.progress-row').text()).toContain('空白项目里的第一条进展')
+  })
+
+  it('不再向学生展示「时间线接口未接入」这类技术状态', () => {
+    const wrapper = mount(CloudProjectWorkbench)
+
+    expect(wrapper.text()).not.toContain('时间线读取接口仍未接入')
+    expect(wrapper.text()).not.toContain('能力状态')
+  })
+
+  it('导出云端项目：同时给出只读投影说明，未加载的列表不冒充空', async () => {
+    mocked.cloud.tasksHydrated = false
+    mocked.cloud.materialsHydrated = true
+
+    const createObjectURL = vi.fn((_blob: Blob) => 'blob:mock')
+    const revokeObjectURL = vi.fn()
+    const originalCreate = URL.createObjectURL
+    const originalRevoke = URL.revokeObjectURL
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true })
+    Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    try {
+      const wrapper = mount(CloudProjectWorkbench)
+      const card = wrapper.get('.export-card')
+      expect(card.text()).toContain('只读投影快照，不是完整备份')
+      expect(card.text()).toContain('未加载')
+      expect(card.text()).toContain('不代表项目里没有')
+
+      await card.get('.export-actions button').trigger('click')
+
+      expect(createObjectURL).toHaveBeenCalledTimes(1)
+      const blob = createObjectURL.mock.calls[0]?.[0]
+      expect(blob).toBeInstanceOf(Blob)
+      const parsed = JSON.parse(await (blob as Blob).text()) as Record<string, unknown>
+      const lists = parsed['lists'] as Record<string, { loaded: boolean }>
+      expect(parsed['scope']).toBe('cloud-projection')
+      expect(lists['tasks']?.loaded).toBe(false)
+      expect(lists['materials']?.loaded).toBe(true)
+      expect(click).toHaveBeenCalled()
+      expect(revokeObjectURL).toHaveBeenCalled()
+      expect(wrapper.get('.export-done').text()).toContain('已开始下载')
+    } finally {
+      click.mockRestore()
+      Object.defineProperty(URL, 'createObjectURL', { value: originalCreate, configurable: true })
+      Object.defineProperty(URL, 'revokeObjectURL', { value: originalRevoke, configurable: true })
+      mocked.cloud.tasksHydrated = true
+    }
   })
 
   it('未挂阶段的证据也显示在当前阶段，不会被阶段过滤掉', () => {

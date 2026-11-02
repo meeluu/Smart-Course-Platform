@@ -91,7 +91,7 @@ describe('summarizeProjectStatus：空白项目判定', () => {
     const summary = summarizeProjectStatus(makeProject({ evidenceRecords: [makeEvidence()] }))
 
     expect(summary.isBlank).toBe(false)
-    expect(summary.note).toContain('1 条证据')
+    expect(summary.note).toContain('1 条工作记录')
   })
 
   it('只有疑问时不再是空白项目（已解决的疑问也算用户输入过）', () => {

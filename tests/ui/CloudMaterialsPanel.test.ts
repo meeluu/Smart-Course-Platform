@@ -155,7 +155,7 @@ describe('CloudMaterialsPanel', () => {
       contentBase64: 'aGVsbG8=',
     })
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('理解条目需逐条确认')
+      expect(wrapper.text()).toContain('材料要点需逐条确认')
     })
   })
 

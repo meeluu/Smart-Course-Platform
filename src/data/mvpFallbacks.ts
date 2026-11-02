@@ -80,7 +80,7 @@ export function buildLocalRecommendations(input: LocalRecommendationInput): Reco
 /* --------------------------------------------------------------- 各条规则 */
 
 /**
- * 0. 空白项目：创建之后还没有任务、证据、疑问与里程碑。
+ * 0. 空白项目：创建之后还没有任务、工作记录、疑问与阶段。
  * 这时不该凭空编造研究事实，只提示"先补基本信息"，把主动权交回用户。
  */
 function buildBlankProjectSuggestion(
@@ -99,7 +99,7 @@ function buildBlankProjectSuggestion(
   return {
     title: '先补上项目的基本信息',
     whyNow:
-      '这是一个空白项目：还没有任务、证据和未解决的疑问，AI 没有可分析的依据。先上传材料或写下项目目标，之后每一步建议才有落点。',
+      '这是一个空白项目：还没有任务、工作记录和未解决的疑问，AI 没有可分析的依据。先上传材料或写下项目目标，之后每一步建议才有落点。',
     doneCriteria: '上传实验手册或数据集，或写下项目目标与预期产出',
     existingTaskId: null,
     basisEvidenceIds: [],
@@ -118,7 +118,7 @@ function buildDoingSuggestion(tasks: TaskSnapshot[], evidence: EvidenceSnapshot[
   return {
     title: `先把进行中的任务收尾：${task.title}`,
     whyNow: `「${task.title}」正在进行中${scopeHint}；先把它收尾，后面的步骤才有稳定的前提。`,
-    doneCriteria: task.doneCriteria ?? '补齐这一步的完成标准，并提交一条证据',
+    doneCriteria: task.doneCriteria ?? '补齐这一步的完成标准，并提交一条工作记录',
     existingTaskId: task.taskId,
     basisEvidenceIds: latestEvidenceIdOfTask(evidence, task.taskId),
     basisDoubtIds: [],
@@ -156,7 +156,7 @@ function buildTodoSuggestion(tasks: TaskSnapshot[]): Suggestion | null {
   return {
     title: `启动下一个任务：${task.title}`,
     whyNow: `它是「${milestone}」里尚未开始的任务；先把它启动起来，推进才有着落。`,
-    doneCriteria: task.doneCriteria ?? '完成这一步，并提交一条证据',
+    doneCriteria: task.doneCriteria ?? '完成这一步，并提交一条工作记录',
     existingTaskId: task.taskId,
     basisEvidenceIds: [],
     basisDoubtIds: [],
@@ -164,7 +164,7 @@ function buildTodoSuggestion(tasks: TaskSnapshot[]): Suggestion | null {
 }
 
 /**
- * 4. 当前里程碑：只有在"没有可推进的具体任务"时才用，
+ * 4. 当前阶段：只有在"没有可推进的具体任务"时才用，
  * 否则会和上面几条表达同一件事（第 1、3 条已经覆盖了具体任务）。
  */
 function buildMilestoneSuggestion(
@@ -180,7 +180,7 @@ function buildMilestoneSuggestion(
   if (hasOpenWork) return null
 
   return {
-    title: `推进当前里程碑：${currentMilestone}`,
+    title: `推进当前阶段：${currentMilestone}`,
     whyNow: `项目里暂时没有进行中或未开始的任务，也没有未解决的疑问；先给「${currentMilestone}」定下一个具体任务。`,
     doneCriteria: '写下一条具体任务，并说明完成时会留下什么',
     existingTaskId: null,
@@ -189,22 +189,22 @@ function buildMilestoneSuggestion(
   }
 }
 
-/** 5. 证据不足：有任务却一条证据都没有，先补一条可追溯的证据 */
+/** 5. 工作记录不足：有任务却一条工作记录都没有，先补一条可追溯的记录 */
 function buildEvidenceSuggestion(tasks: TaskSnapshot[], evidence: EvidenceSnapshot[]): Suggestion | null {
   if (evidence.length > 0) return null
   if (tasks.length === 0) return null
 
   return {
-    title: '先提交第一条证据',
-    whyNow: `项目里已经有 ${tasks.length} 条任务，但还没有任何证据；先写下刚做完的事和结论，后续判断才有依据。`,
-    doneCriteria: '提交一条包含「完成了什么」和「发现了什么」的证据',
+    title: '先提交第一条工作记录',
+    whyNow: `项目里已经有 ${tasks.length} 条任务，但还没有任何工作记录；先写下刚做完的事和结论，后续判断才有依据。`,
+    doneCriteria: '提交一条包含「完成了什么」和「发现了什么」的工作记录',
     existingTaskId: null,
     basisEvidenceIds: [],
     basisDoubtIds: [],
   }
 }
 
-/** 有证据但还没有任务时，先把这条真实进展整理成下一步输入。 */
+/** 有工作记录但还没有任务时，先把这条真实进展整理成下一步输入。 */
 function buildEvidenceOnlySuggestion(
   tasks: TaskSnapshot[],
   evidence: EvidenceSnapshot[],
@@ -217,7 +217,7 @@ function buildEvidenceOnlySuggestion(
   return {
     title: '根据这条进展补出第一项任务',
     whyNow: '项目里已经有一条真实进展，但还没有正式任务；先把这次进展整理成可执行的下一步。',
-    doneCriteria: '写下一条任务，并说明完成时会留下什么证据',
+    doneCriteria: '写下一条任务，并说明完成时会留下什么工作记录',
     existingTaskId: null,
     basisEvidenceIds: [latest.evidenceId],
     basisDoubtIds: [],

@@ -20,6 +20,7 @@ import {
 import { CHINESE_NUM, WEEK_LABELS, useWorkbenchStore } from '@/stores/workbench'
 import { usePlatformStore } from '@/stores/platform'
 import { deriveDoubtSnapshots, deriveEvidenceSnapshots, toDisplayTime } from '@/domain/activity'
+import { buildLocalProjectExport, serializeProjectExport } from '@/domain/projectExport'
 import { deriveTaskSnapshots, findClaimedTaskFor, taskStatusText } from '@/domain/progress'
 import {
   MAX_ADVISOR_CHAT_QUESTION_LENGTH,
@@ -173,15 +174,15 @@ const reasonText = computed(() => {
 const statusLine = computed(() => {
   switch (store.aiStatus) {
     case 'idle':
-      return '还没有建议。点一下「获取建议」，AI 会结合项目当前状态、最近证据和未解决的疑问，给出 1～3 条下一步建议。'
+      return '还没有建议。点一下「获取建议」，AI 会结合项目当前状态、最近工作记录和未解决的疑问，给出 1～3 条下一步建议。'
     case 'loading':
       return '正在分析项目状态…'
     case 'model':
-      return '以下建议由 AI 模型生成。展开「依据」可以看到它引用的是哪条证据或疑问。'
+      return '以下建议由 AI 模型生成。展开「依据」可以看到它引用的是哪条工作记录或疑问。'
     case 'fallback':
-      return `模型这次没能给出结果，下面是服务端规则生成的参考建议（原因：${reasonText.value}）。`
+      return `模型这次没能给出结果，下面是服务端规则回答（原因：${reasonText.value}）。`
     case 'local-rule':
-      return `后端这次不可用，下面是本地规则生成的参考建议（原因：${reasonText.value}）。`
+      return `后端这次不可用，下面是本地规则回答（原因：${reasonText.value}）。`
     case 'error':
       return `建议没有生成出来：${reasonText.value}。可以重试，也可以先按自己的判断推进。`
     default:
@@ -215,9 +216,9 @@ const statusTag = computed(() => {
     case 'model':
       return 'AI 模型'
     case 'fallback':
-      return '服务端规则'
+      return '服务端规则回答'
     case 'local-rule':
-      return '本地规则'
+      return '本地规则回答'
     case 'error':
       return '生成失败'
     default:
@@ -304,6 +305,34 @@ function onSelectProject(projectId: string) {
   if (!result.ok) notifyFailure(result)
 }
 
+/**
+ * 下载本地项目 JSON（V5-C：学生自助带走数据）。
+ *
+ * 本地项目没有账号，数据只在这台机器上；导出是纯函数序列化，不发请求。
+ * 云端项目的导出在云端工作台里，两处不共用按钮——投影语义不同。
+ */
+function downloadLocalProjectJson() {
+  const current = project.value
+  if (current === undefined) return
+  try {
+    const text = serializeProjectExport(
+      buildLocalProjectExport({ project: current, exportedAt: new Date().toISOString() }),
+    )
+    const blob = new Blob([text], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${(current.short || current.name).replace(/[\\/:*?"<>|]+/g, '-')}-项目导出.json`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+    store.toast('项目已导出为 JSON，可以在浏览器的下载列表里找到')
+  } catch {
+    store.toast('导出没有完成，请稍后再试')
+  }
+}
+
 type ClaimState = 'claimable' | 'claimed' | 'done' | 'draft'
 
 /**
@@ -332,7 +361,7 @@ const suggestionViews = computed(() =>
         d === null
           ? []
           : suggestion.basisEvidenceIds.map(
-              (id) => d.evidenceById.get(id) ?? { id, time: '', text: '（本次请求里没有这条证据）' },
+              (id) => d.evidenceById.get(id) ?? { id, time: '', text: '（本次请求里没有这条工作记录）' },
             ),
       doubts:
         d === null
@@ -353,7 +382,7 @@ const suggestionViews = computed(() =>
 function claimSuggestion(suggestion: Recommendation) {
   const state = claimStateOf(suggestion)
   if (state === 'claimed' || state === 'done') {
-    store.toast(state === 'done' ? '该任务已完成' : '该任务已认领，完成后请提交证据')
+    store.toast(state === 'done' ? '该任务已完成' : '该任务已认领，完成后请提交工作记录')
     return
   }
 
@@ -392,7 +421,7 @@ function claimStep(step: SuggestedStep) {
     return
   }
   if (step.status === 'doing') {
-    store.toast('该任务已认领，完成后请提交证据')
+    store.toast('该任务已认领，完成后请提交工作记录')
     return
   }
   const result = store.claimTask({ taskId: step.taskId })
@@ -510,8 +539,8 @@ async function uploadFile(payload: { file: File; materialId?: string }): Promise
     lastFailedFile.value = null
     materialNotice.value =
       result.data.version > 1
-        ? `「${payload.file.name}」已更新到第 ${result.data.version} 版，解析出 ${result.data.segmentCount} 个片段；可以重新生成理解草稿。`
-        : `「${payload.file.name}」解析成功，共 ${result.data.segmentCount} 个片段；生成理解草稿后需要逐条确认。`
+        ? `「${payload.file.name}」已更新到第 ${result.data.version} 版，解析出 ${result.data.segmentCount} 个片段；可以重新生成材料要点。`
+        : `「${payload.file.name}」解析成功，共 ${result.data.segmentCount} 个片段；生成材料要点后需要逐条确认。`
   } catch (error: unknown) {
     // store 内部已把契约失败转成 ActionResult；这里只兜住"请求还没发出就抛"的异常
     console.warn('[材料] 上传未能完成', error instanceof Error ? error.name : 'unknown')
@@ -792,7 +821,7 @@ async function generateUnderstanding(material: Material): Promise<void> {
       phase: 'error',
       source: null,
       notice: null,
-      errorText: '生成理解草稿没有完成，请稍后重试。',
+      errorText: '生成材料要点没有完成，请稍后重试。',
     })
   }
 }
@@ -871,7 +900,7 @@ function confirmDraftItem(payload: { materialId: string; materialVersion: number
   if (blockId === null) {
     // 条目已经不在：这段未提交文字也不该再留着
     clearRememberedEdit(payload.materialId, payload.materialVersion)
-    store.toast('这条理解已经不存在，请重新生成理解草稿')
+    store.toast('这条材料要点已经不存在，请重新生成材料要点')
     return
   }
   const result = store.confirmUnderstandingBlock({ blockId })
@@ -886,7 +915,7 @@ function undoDraftItem(payload: { materialId: string; materialVersion: number; i
   const blockId = blockIdOf(payload)
   if (blockId === null) {
     clearRememberedEdit(payload.materialId, payload.materialVersion)
-    store.toast('这条理解已经不存在，请重新生成理解草稿')
+    store.toast('这条材料要点已经不存在，请重新生成材料要点')
     return
   }
   const result = store.unconfirmUnderstandingBlock({ blockId })
@@ -906,7 +935,7 @@ function editDraftItem(payload: {
   const blockId = blockIdOf(payload)
   if (blockId === null) {
     clearRememberedEdit(payload.materialId, payload.materialVersion)
-    store.toast('这条理解已经不存在，请重新生成理解草稿')
+    store.toast('这条材料要点已经不存在，请重新生成材料要点')
     return
   }
   const result = store.modifyUnderstandingBlock({ blockId, content: payload.text })
@@ -988,12 +1017,12 @@ watch(() => project.value?.chat.length, scrollChat)
 /** 回答来源如实标注：AI 模型生成 / 服务端规则参考 / 本地规则参考 */
 function chatSourceText(message: ChatMessage): string {
   if (message.me || message.source === undefined) return ''
-  if (message.source === 'model') return 'AI 生成'
+  if (message.source === 'model') return 'AI 模型回答'
   if (message.source === 'fallback') {
     const reason = fallbackReasonTextOf(message.fallbackReason)
-    return reason !== '' ? `系统规则参考（原因：${reason}）` : '系统规则参考'
+    return reason !== '' ? `服务端规则回答（原因：${reason}）` : '服务端规则回答'
   }
-  return '本地规则参考'
+  return '本地规则回答'
 }
 
 /**
@@ -1051,9 +1080,9 @@ const adviceNote = computed(() => {
     case 'model':
       return '下一步建议来自 AI 模型'
     case 'fallback':
-      return `建议暂时使用规则结果（服务端规则兜底：${reasonText.value}）`
+      return `建议暂时使用服务端规则回答（原因：${reasonText.value}）`
     case 'local-rule':
-      return `建议暂时使用规则结果（本地规则：${reasonText.value}）`
+      return `建议暂时使用本地规则回答（原因：${reasonText.value}）`
     case 'error':
       return `建议没有生成出来：${reasonText.value}`
     default:
@@ -1112,6 +1141,7 @@ watch(
         <div class="wb-head-actions">
           <button class="btn" type="button" @click="store.showCreate()">＋ 新建项目</button>
           <button class="btn" type="button" @click="router.push('/map')">查看项目地图</button>
+          <button class="btn" type="button" @click="downloadLocalProjectJson">下载项目 JSON</button>
         </div>
       </div>
 
@@ -1158,7 +1188,7 @@ watch(
           </template>
         </div>
         <div v-else class="empty" style="padding:2px 0 6px;">
-          这个项目还没有里程碑。填写项目基本信息、上传材料或提交第一条进展后，AI 会给出阶段划分。
+          这个项目还没有阶段。填写项目基本信息、上传材料或提交第一条进展后，AI 会给出阶段划分。
         </div>
       </div>
     </div>
@@ -1185,7 +1215,7 @@ watch(
                 <dd>进行中 {{ taskCounts.doing }} · 已完成 {{ taskCounts.done }}</dd>
               </div>
               <div class="stat-row">
-                <dt>证据</dt>
+                <dt>工作记录</dt>
                 <dd>{{ project.evidenceRecords.length }} 条</dd>
               </div>
             </dl>
@@ -1207,7 +1237,7 @@ watch(
         </div>
 
                 <div class="card" style="margin-bottom:14px;">
-          <div class="card-h">里程碑进度</div>
+          <div class="card-h">阶段进度</div>
           <div class="card-b">
             <template v-if="project.ms.length">
               <div v-for="(m, i) in project.ms" :key="i" class="milestone">
@@ -1220,7 +1250,7 @@ watch(
               </div>
             </template>
             <div v-else class="empty" style="padding:4px 0;">
-              这个项目还没有里程碑。上传材料、写下项目目标或提交第一条进展后，
+              这个项目还没有阶段。上传材料、写下项目目标或提交第一条进展后，
               AI 会给出阶段划分。
             </div>
           </div>
@@ -1345,7 +1375,7 @@ watch(
           <div class="card-h">项目地图</div>
           <div class="card-b">
             <p class="map-entry">
-              项目的里程碑、任务状态与材料理解进度都摊在独立的项目地图页上。
+              项目的阶段、任务状态与材料要点进度都摊在独立的项目地图页上。
             </p>
             <button class="btn primary" @click="router.push('/map')">查看项目地图</button>
           </div>
@@ -1359,7 +1389,7 @@ watch(
             </span>
           </div>
           <div class="card-b">
-            <p class="chat-hint">AI 会结合当前项目的任务、证据、疑问和历史对话回答，并标明回答来源。</p>
+            <p class="chat-hint">AI 会结合当前项目的任务、工作记录、疑问和历史对话回答，并标明回答来源。</p>
 
             <div ref="chatLog" class="chat-log">
               <div v-for="(msg, i) in project.chat" :key="i" class="msg" :class="{ me: msg.me }">
@@ -1400,7 +1430,7 @@ watch(
       <!-- ---------------------------------------------------------- 右栏 -->
       <div>
         <div class="card" style="margin-bottom:14px;">
-          <div class="card-h">提交步骤证据</div>
+          <div class="card-h">提交工作记录</div>
           <div class="card-b evi-form">
             <EvidenceForm
               ref="evidenceForm"
@@ -1412,7 +1442,7 @@ watch(
 
             <!-- 契约 5.2：证据保存结果与建议结果同时可见 -->
             <div v-if="lastSavedAt" class="evidence-save-status">
-              ✓ 证据已保存（{{ lastSavedAt }}）；建议失败也不会丢失
+              ✓ 工作记录已保存（{{ lastSavedAt }}）；建议失败也不会丢失
               <template v-if="adviceNote"><br />{{ adviceNote }}</template>
               <template v-if="store.aiStatus === 'error' || store.aiStatus === 'local-rule'">
                 <br />可以在「AI 下一步建议」处重试。
@@ -1423,7 +1453,7 @@ watch(
         </div>
 
         <div class="card">
-          <div class="card-h">最近证据</div>
+          <div class="card-h">最近工作记录</div>
           <div class="card-b" style="padding-top:8px;">
             <div class="tl">
               <div v-for="(item, i) in recentEvidence" :key="i" class="tl-item">
@@ -1432,7 +1462,7 @@ watch(
                 <div class="tl-who">{{ item.who }}</div>
               </div>
               <div v-if="!recentEvidence.length" class="empty" style="padding-left:0;">
-                还没有证据记录。完成第一步后，记得回来提交——AI 会根据你的证据更新项目状态，再给出下一步建议。
+                还没有工作记录。完成第一步后，记得回来提交——AI 会根据你的工作记录更新项目状态，再给出下一步建议。
               </div>
             </div>
           </div>
@@ -1511,7 +1541,7 @@ watch(
             </ul>
 
             <p v-if="!materialRows.length" class="empty" style="padding:2px 0 8px;">
-              还没有材料。上传一份 MD 或 TXT 文件后，系统会拆成片段并生成待确认的理解草稿。
+              还没有材料。上传一份 MD 或 TXT 文件后，系统会拆成片段并生成待确认的材料要点。
             </p>
 
             <MaterialUploader
@@ -1573,11 +1603,11 @@ watch(
               />
             </template>
             <p v-else-if="materialRows.length > 0" class="empty">
-              这些历史条目只登记了文件名，正文没有被读取，也没有理解草稿；重新上传一份 MD / TXT
-              才能生成理解草稿。
+            这些历史条目只登记了文件名，正文没有被读取，也没有材料要点；重新上传一份 MD / TXT
+            才能生成材料要点。
             </p>
             <p v-else class="empty">
-              左边还没有可显示的材料。上传一份 MD 或 TXT 文件后，这里会显示这份材料的状态、理解草稿与来源。
+              左边还没有可显示的材料。上传一份 MD 或 TXT 文件后，这里会显示这份材料的状态、材料要点与来源。
             </p>
           </div>
         </div>

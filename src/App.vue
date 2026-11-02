@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import AuthPanel from '@/components/AuthPanel.vue'
 import LocalMigrationPanel from '@/components/LocalMigrationPanel.vue'
+import OnboardingGuide from '@/components/OnboardingGuide.vue'
 import { usePlatformStore } from '@/stores/platform'
 import { useWorkbenchStore } from '@/stores/workbench'
 
@@ -117,12 +118,14 @@ watch(
 </script>
 
 <template>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
   <header>
     <div class="logo">《大数据分析实践》智慧课程平台<span>AI 项目顾问</span></div>
     <div v-if="platform.isAuthenticated" class="account-bar">
       <span class="account-name">{{ platform.displayName }}</span>
-      <button v-if="platform.isCloudSource" class="btn account-logout" type="button" @click="useLocalProjects">本地项目</button>
-      <button v-else class="btn account-logout" type="button" @click="useCloudProjects">云端项目</button>
+      <button v-if="platform.isCloudSource" class="btn account-logout" type="button" @click="useLocalProjects">切到本地项目</button>
+      <button v-else class="btn account-logout" type="button" @click="useCloudProjects">切到云端项目</button>
       <button class="btn account-logout" type="button" @click="logout">退出登录</button>
     </div>
     <div v-else class="avatar">本地</div>
@@ -139,7 +142,7 @@ watch(
     </button>
   </nav>
 
-  <main class="page show">
+  <main id="main" class="page show" tabindex="-1">
     <div v-if="!platform.initialized || authBusy" class="card startup-state">
       正在检查登录状态…
     </div>
@@ -164,6 +167,8 @@ watch(
       @retry="(projectId) => migrate(projectId, true)"
       @dismiss="useLocalProjects"
     />
+    <!-- 引导只挂在首屏：切到地图或论文页说明已经会用，不再重复打扰 -->
+    <OnboardingGuide v-if="platform.isAuthenticated && route.path === '/'" />
     <RouterView />
   </main>
 
@@ -175,6 +180,8 @@ watch(
 .account-name { color:#185FA5; font-size:13px; }
 .account-logout { padding:5px 10px; }
 .startup-state { max-width:760px; margin:30px auto; padding:18px; display:flex; align-items:center; gap:12px; justify-content:space-between; }
+/* 跳转链接落在 main 上：整页描边没有意义，键盘焦点改由目标区块自身表达 */
+main:focus { outline:none; }
 @media (max-width:600px) {
   header { min-height:56px; height:auto; padding:8px 12px; flex-wrap:wrap; gap:8px; }
   .logo { flex:1 1 100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

@@ -162,8 +162,8 @@ async function onFileChange(event: Event): Promise<void> {
   uploadNotice.value = deduplicated
     ? '这份材料之前就上传过，已复用已有记录，没有重复保存。'
     : material.status === 'parse_failed'
-      ? '材料已保存，但解析失败，暂时没有片段与理解草稿；可以稍后重新解析。'
-      : '材料已保存并解析完成；理解条目需逐条确认后才会作为 AI 依据。'
+      ? '材料已保存，但解析失败，暂时没有片段与材料要点；可以稍后重新解析。'
+      : '材料已保存并解析完成；材料要点需逐条确认后才会作为 AI 依据。'
 
   await loadList()
   if (!deduplicated) {
@@ -230,7 +230,7 @@ async function runMaterialAction(
         ? `已归档「${material.name}」，它不会再作为 AI 依据。`
         : action === 'restore'
           ? `已恢复「${material.name}」。`
-          : `已重新解析「${material.name}」为版本 ${result.data.materialVersion}，理解条目需要重新确认。`
+          : `已重新解析「${material.name}」为版本 ${result.data.materialVersion}，材料要点需要重新确认。`
     await loadList()
     const target = cloud.materials.find((item) => item.materialId === material.materialId)
     if (target !== undefined) {
@@ -285,7 +285,7 @@ onMounted(() => {
       </div>
 
       <p v-else-if="isEmpty" class="hint">
-        这个项目还没有材料。上传 MD 或 TXT 后，系统会切分片段并生成理解草稿；只有你逐条确认的内容才会作为
+        这个项目还没有材料。上传 MD 或 TXT 后，系统会切分片段并生成材料要点；只有你逐条确认的内容才会作为
         AI 依据。
       </p>
 
@@ -348,7 +348,7 @@ onMounted(() => {
           <div>
             <strong>{{ selected.name }}</strong>
             <small>
-              版本 {{ selected.materialVersion }} · 片段 {{ segments?.length ?? 0 }} 段 · 已确认理解
+              版本 {{ selected.materialVersion }} · 片段 {{ segments?.length ?? 0 }} 段 · 已确认要点
               {{ confirmedCount }} 条
             </small>
           </div>
@@ -358,11 +358,11 @@ onMounted(() => {
         </div>
 
         <p v-if="detailError" class="cloud-error">{{ detailError }}</p>
-        <p v-else-if="detailLoading" class="hint">正在读取片段与理解内容…</p>
+        <p v-else-if="detailLoading" class="hint">正在读取片段与材料要点…</p>
 
         <template v-else>
           <div v-if="selected.status === 'parse_failed'" class="hint">
-            这份材料解析失败，没有片段与理解草稿。可以点「重新解析」，或删掉后重新上传。
+            这份材料解析失败，没有片段与材料要点。可以点「重新解析」，或删掉后重新上传。
           </div>
           <template v-else>
             <div class="detail-block">
@@ -381,11 +381,11 @@ onMounted(() => {
             </div>
 
             <div class="detail-block">
-              <h4>理解内容</h4>
+              <h4>材料要点</h4>
               <p v-if="understanding !== null && understanding.length === 0" class="hint">
-                这份材料还没有理解条目，说明草稿尚未生成。
+                这份材料还没有材料要点，说明要点尚未生成。
               </p>
-              <p v-else-if="understanding === null" class="hint">还没有读取理解内容。</p>
+              <p v-else-if="understanding === null" class="hint">还没有读取材料要点。</p>
               <ul v-else class="understanding-list">
                 <li v-for="item in understanding" :key="item.itemId">
                   <div class="understanding-head">

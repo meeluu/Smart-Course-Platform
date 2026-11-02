@@ -51,12 +51,12 @@ function buildNote(summary: Omit<ProjectStatusSummary, 'note'>): string {
   if (taskCount > 0) {
     return (
       `AI 项目顾问正在追踪 ${taskCount} 个任务（进行中 ${doingCount} · 已完成 ${doneCount} · 未开始 ${todoCount}），` +
-      `已记录 ${evidenceCount} 条证据、${materialCount} 份材料${doubtTail}。`
+      `已记录 ${evidenceCount} 条工作记录、${materialCount} 份材料${doubtTail}。`
     )
   }
 
   const assets: string[] = []
-  if (evidenceCount > 0) assets.push(`${evidenceCount} 条证据`)
+  if (evidenceCount > 0) assets.push(`${evidenceCount} 条工作记录`)
   if (materialCount > 0) assets.push(`${materialCount} 份材料`)
   if (openDoubtCount > 0) assets.push(`${openDoubtCount} 条待解决疑问`)
 

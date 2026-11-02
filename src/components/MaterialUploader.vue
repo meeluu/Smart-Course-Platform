@@ -56,7 +56,7 @@ const chooseDisabled = computed(() => props.disabled === true || props.busy === 
 const steps = computed(() => [
   { key: 'select', label: '选择文件' },
   { key: 'parse', label: props.registerOnly === true ? '登记文件名' : '上传与解析' },
-  { key: 'draft', label: '生成理解草稿' },
+  { key: 'draft', label: '生成材料要点' },
 ])
 
 /** 当前进行到哪一步：done / active / todo */
@@ -80,8 +80,8 @@ const stateText = computed(() => {
   const stage = props.stage ?? 'idle'
   if (stage === 'registered') return '当前状态：文件名已登记，正文尚未上传、也还没有解析'
   if (stage === 'uploading') return '当前状态：正在上传并解析正文'
-  if (stage === 'parsed') return '当前状态：正文已解析，可以生成理解草稿'
-  if (stage === 'understanding') return '当前状态：正在生成理解草稿'
+  if (stage === 'parsed') return '当前状态：正文已解析，可以生成材料要点'
+  if (stage === 'understanding') return '当前状态：正在生成材料要点'
   if (stage === 'error') return '当前状态：上一次没有成功，可以重试'
   return '当前状态：还没有选择文件'
 })
@@ -170,7 +170,7 @@ defineExpose({ chooseReplace })
       只支持 MD、TXT 文件（单个文件不超过 1 MB）。选择文件后会先在本机检查类型、大小与空文件。
     </p>
     <p v-if="props.registerOnly && !props.notice" class="mu-note">
-      当前先登记文件名：正文不会被读取，解析与理解草稿将在材料接口接入后开放。
+      当前先登记文件名：正文不会被读取，解析与材料要点将在材料接口接入后开放。
     </p>
     <p v-if="props.notice" class="mu-notice">{{ props.notice }}</p>
     <p v-if="localError" class="mu-error" role="alert">{{ localError }}</p>
