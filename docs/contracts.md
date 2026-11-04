@@ -740,14 +740,14 @@ Content-Type: application/json
 | --- | --- |
 | 允许来源 | 允许生产来源 `https://course.xinxian-music.xyz` 与本地开发来源 `http://localhost:5173`、`http://127.0.0.1:5173`；其他带 `Origin` 的来源返回 403 |
 | 方法 | V2：`POST`、`OPTIONS`；V3：`GET`、`POST`、`PATCH`、`DELETE`、`OPTIONS`（预检必须显式处理） |
-| 请求头 | `Content-Type`、`X-Request-Id`；V2 不使用 Cookie，`Access-Control-Allow-Credentials` 关闭；V3 启用 Cookie，必须为 `true` |
+| 请求头 | `Content-Type`、`X-Request-Id`；V2 建议/材料不带 Cookie，`Access-Control-Allow-Credentials` 关闭；`POST /api/advisor/chat` 与 V3 接口启用 Cookie，必须为 `true` |
 | 缓存 | API 响应禁止公共边缘缓存（`Cache-Control: no-store`）；当前未实现服务端建议缓存，`cached` 固定为 `false` |
 | 限流 | 当前部署尚未启用 IP 限流；`RATE_LIMITED` 保留为契约错误码，启用限流后才返回 |
 | 预算 | 单日调用上限与单次 token 上限尚未在本轮部署中启用；启用后超限应走 `fallback`，不返回 5xx 给前端 |
 
 > v2 新增的 `POST /api/materials`、`POST /api/materials/understanding` 路径沿用本节 CORS 策略（同一份白名单与预检处理），不新增第二套跨域规则。
 >
-> **V2/V3 凭据策略不同**：V2 建议/聊天/材料接口仍不带 Cookie，`Access-Control-Allow-Credentials` 保持关闭；V3 账号与项目接口必须带 Cookie，返回 `Access-Control-Allow-Credentials: true`、精确回显 `Origin` 并设置 `Vary: Origin`，禁止 `*`。两套策略按路径族切换，不能全局放开。详细约定见 21.2.3。
+> **V2/V3 凭据策略不同**：`POST /api/advisor/chat` 自 V5 起带 Cookie 会话（§30.3 落库需要），`credentials` 必须为 `true`；其余 V2 路径（建议/材料）不带 Cookie。V3 账号与项目接口必须带 Cookie，返回 `Access-Control-Allow-Credentials: true`、精确回显 `Origin` 并设置 `Vary: Origin`，禁止 `*`。两套策略按路径族切换，不能全局放开。详细约定见 21.2.3。
 
 ### 7.5 超时与重试（约定）
 
