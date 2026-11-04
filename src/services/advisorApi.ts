@@ -699,6 +699,7 @@ async function requestChatOnce(
     body: request,
     timeoutMs: options.timeoutMs,
     signal: options.signal,
+    credentials: 'include',
     fetchImpl: options.fetchImpl,
   })
 
