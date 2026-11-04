@@ -37,7 +37,7 @@ import { v3Message } from '@/services/v3Http'
 /** 迁移幂等记录键；只保存 migrationId/状态，不保存任何会话令牌 */
 export const STORAGE_KEY_MIGRATIONS = 'scp.v3.migrations'
 /** 服务端确认窗口：30 分钟（契约 24.2） */
-export const MIGRATION_CONFIRMATION_WINDOW_MS = 30 * 60 * 1000
+const MIGRATION_CONFIRMATION_WINDOW_MS = 30 * 60 * 1000
 
 const LIMITS = {
   milestones: 50,
@@ -327,7 +327,8 @@ export function saveMigrationRecord(record: LocalMigrationRecord): boolean {
   return writeRaw(STORAGE_KEY_MIGRATIONS, JSON.stringify(records))
 }
 
-export function newMigrationId(): string {
+/** 生成 `mig_` 前缀的迁移 ID；仅本文件内部使用 */
+function newMigrationId(): string {
   const cryptoApi = globalThis.crypto
   const suffix =
     cryptoApi !== undefined && typeof cryptoApi.randomUUID === 'function'
@@ -609,23 +610,5 @@ export function buildLocalMigrationRequest(
       },
       localProject,
     },
-  }
-}
-
-/** 当前 UI 需要展示的“待确认/迁移中/成功/失败”状态来源 */
-export function migrationStatusLabel(status: LocalMigrationCandidate['status']): string {
-  switch (status) {
-    case 'idle':
-      return '未检测到本地项目'
-    case 'pending-confirmation':
-      return '待确认迁移'
-    case 'migrating':
-      return '迁移中'
-    case 'succeeded':
-      return '迁移成功'
-    case 'failed':
-      return '迁移失败，可重试'
-    case 'blocked':
-      return '本地数据暂不能迁移'
   }
 }

@@ -52,7 +52,7 @@ import type { ProjectProfile } from '@/types/platform'
 /** 契约 4.0：VITE_API_BASE_URL 不含 /api，由适配层补全 */
 export const ADVISOR_RECOMMENDATIONS_PATH = '/api/advisor/recommendations'
 /** 契约 6.4：聊天接口 */
-export const ADVISOR_CHAT_PATH = '/api/advisor/chat'
+const ADVISOR_CHAT_PATH = '/api/advisor/chat'
 
 /** 契约 4.6：建议最多 3 条。服务端已校验，前端再兜一次，避免异常响应污染列表 */
 export const MAX_SUGGESTIONS = 3
@@ -222,7 +222,7 @@ export interface BuildAdvisorChatRequestInput {
  * 规则：丢掉空文本、逐条截断到 2,000 字、只保留最近 20 条、顺序保持不变。
  * 聊天**不发** `confirmedContext`：服务端聊天解析器会自己补空数组（契约 6.4 字段表）。
  */
-export function normalizeChatHistory(history: AdvisorChatMessage[] | undefined): AdvisorChatMessage[] {
+function normalizeChatHistory(history: AdvisorChatMessage[] | undefined): AdvisorChatMessage[] {
   if (history === undefined || !Array.isArray(history)) return []
 
   const cleaned: AdvisorChatMessage[] = []

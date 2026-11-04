@@ -41,7 +41,7 @@ export interface ProjectChoice {
   label: string
 }
 
-export const CLOUD_PROJECT_PREFIX = 'cloud:'
+const CLOUD_PROJECT_PREFIX = 'cloud:'
 
 function failure<T = never>(error: V3ApiError): ActionResult<T> {
   return { ok: false, code: error.code, message: error.message }
