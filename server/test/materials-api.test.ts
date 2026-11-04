@@ -212,7 +212,8 @@ test('CORS：允许来源的预检返回 204，其他来源返回 403', async ()
   })
   assert.equal(preflight.status, 204)
   assert.equal(preflight.headers.get('access-control-allow-origin'), 'https://course.xinxian-music.xyz')
-  assert.equal(preflight.headers.get('access-control-allow-methods'), 'POST, OPTIONS')
+  assert.equal(preflight.headers.get('access-control-allow-methods'), 'GET, POST, OPTIONS')
+  assert.equal(preflight.headers.get('access-control-allow-credentials'), 'true')
 
   const denied = await fetch(`${baseUrl}${PATH}`, {
     method: 'POST',

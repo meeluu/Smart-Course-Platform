@@ -1,6 +1,7 @@
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  ALLOWED_ORIGIN,
   createMilestone,
   createProject,
   createTestClient,
@@ -266,4 +267,37 @@ test('同一 requestId 重放不二次调用上游', async () => {
   assert.equal(second.status, 200)
   assert.deepEqual(second.body, first.body)
   assert.equal(fetchCalls.length, 1)
+})
+
+test('CORS：论文 GET 带白名单 Origin 返回 credentials 头，非白名单 403', async () => {
+  const params = new URLSearchParams({
+    contractVersion: '3.0',
+    requestId: uuid(),
+    projectId: project.projectId,
+    query: QUERY,
+    limit: '5',
+  })
+  const path = `/api/papers/search?${params.toString()}`
+
+  const allowed = await client.request(path, { cookie: user.cookie })
+  assert.equal(allowed.status, 200)
+  assert.equal(allowed.headers.get('access-control-allow-origin'), ALLOWED_ORIGIN)
+  assert.equal(allowed.headers.get('access-control-allow-credentials'), 'true')
+  assert.equal(allowed.headers.get('access-control-allow-methods'), 'GET, POST, OPTIONS')
+
+  const preflight = await fetch(`${client.baseUrl}/api/papers/search`, {
+    method: 'OPTIONS',
+    headers: {
+      Origin: ALLOWED_ORIGIN,
+      'Access-Control-Request-Method': 'GET',
+      'Access-Control-Request-Headers': 'Content-Type',
+    },
+  })
+  assert.equal(preflight.status, 204)
+  assert.equal(preflight.headers.get('access-control-allow-origin'), ALLOWED_ORIGIN)
+  assert.equal(preflight.headers.get('access-control-allow-credentials'), 'true')
+
+  const denied = await client.request(path, { cookie: user.cookie, origin: 'https://example.com' })
+  assert.equal(denied.status, 403)
+  assert.equal(denied.headers.get('access-control-allow-origin'), null)
 })

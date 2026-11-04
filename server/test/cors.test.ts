@@ -85,8 +85,9 @@ for (const allowedOrigin of ALLOWED_ORIGINS) {
 
     assert.equal(response.status, 204)
     assert.equal(response.headers.get('access-control-allow-origin'), allowedOrigin)
-    assert.equal(response.headers.get('access-control-allow-methods'), 'POST, OPTIONS')
+    assert.equal(response.headers.get('access-control-allow-methods'), 'GET, POST, OPTIONS')
     assert.equal(response.headers.get('access-control-allow-headers'), 'Content-Type')
+    assert.equal(response.headers.get('access-control-allow-credentials'), 'true')
     assert.equal(response.headers.get('vary'), 'Origin')
   })
 }
@@ -104,8 +105,9 @@ for (const allowedOrigin of ALLOWED_ORIGINS) {
     assert.equal(result.source, 'model')
     assert.ok(result.suggestions.length >= 1 && result.suggestions.length <= 3)
     assert.equal(response.headers.get('access-control-allow-origin'), allowedOrigin)
-    assert.equal(response.headers.get('access-control-allow-methods'), 'POST, OPTIONS')
+    assert.equal(response.headers.get('access-control-allow-methods'), 'GET, POST, OPTIONS')
     assert.equal(response.headers.get('access-control-allow-headers'), 'Content-Type')
+    assert.equal(response.headers.get('access-control-allow-credentials'), 'true')
   })
 }
 
