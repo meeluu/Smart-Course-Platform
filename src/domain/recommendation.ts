@@ -36,9 +36,6 @@ export const CONTRACT_VERSION = '1.0'
  */
 export const DEFAULT_PROMPT_VERSION = 'mvp-prompt-v2'
 
-/** 契约 17.4：v1 取值兼容保留（旧页面可能仍在用，服务端不删除该取值） */
-export const ADVISOR_PROMPT_VERSION_V1 = 'mvp-prompt-v1'
-
 /** 契约 17.4：聊天接口的当前提示词版本；`advisor-chat-v1` 兼容保留 */
 export const ADVISOR_CHAT_PROMPT_VERSION = 'advisor-chat-v2'
 
@@ -650,11 +647,9 @@ export interface AdvisorOutcome {
 }
 
 /** 契约 2.2 / 4.1：字段长度上限 */
-export const MAX_TASK_TITLE_LENGTH = 60
 export const MAX_EVIDENCE_DID_WHAT_LENGTH = 300
 export const MAX_EVIDENCE_FOUND_WHAT_LENGTH = 300
 export const MAX_EVIDENCE_UNSURE_LENGTH = 300
-export const MAX_DONE_CRITERIA_LENGTH = 200
 
 /* ------------------------------------------------------------ 领域对象 */
 
@@ -698,19 +693,6 @@ export const RETRYABLE_BY_CODE: Record<AdvisorErrorCode, boolean> = {
   UNAUTHORIZED: false,
 }
 
-/** 契约 16：材料与理解相关错误码，供页面先做本地提示（服务端也会回中文 message） */
-export const MATERIAL_ERROR_CODES: readonly AdvisorErrorCode[] = [
-  'UNSUPPORTED_MATERIAL_TYPE',
-  'MATERIAL_TOO_LARGE',
-  'EMPTY_MATERIAL',
-  'MATERIAL_ENCODING_UNREADABLE',
-  'MATERIAL_PARSE_FAILED',
-]
-
-export function isMaterialErrorCode(value: unknown): value is AdvisorErrorCode {
-  return typeof value === 'string' && (MATERIAL_ERROR_CODES as string[]).includes(value)
-}
-
 /**
  * 契约 16：材料与理解相关错误码的**对外中文 message**。
  *
@@ -749,22 +731,6 @@ export const MATERIAL_ERROR_MESSAGES: Record<
   INVALID_MODEL_OUTPUT: '模型返回内容不合法，请稍后重试',
   MODEL_UNAVAILABLE: '模型服务暂不可用，请稍后重试',
   MODEL_NOT_CONFIGURED: '服务端未配置模型密钥，暂时无法生成材料要点',
-}
-
-/** 契约 16（+ 6.1 / 6.2）：材料与理解相关错误码的 retryable 兜底值（响应缺字段时使用） */
-export const MATERIAL_RETRYABLE_BY_CODE: Record<string, boolean> = {
-  INVALID_INPUT: false,
-  RATE_LIMITED: true,
-  INTERNAL: true,
-  UNSUPPORTED_MATERIAL_TYPE: false,
-  MATERIAL_TOO_LARGE: false,
-  EMPTY_MATERIAL: false,
-  MATERIAL_ENCODING_UNREADABLE: false,
-  MATERIAL_PARSE_FAILED: false,
-  MODEL_TIMEOUT: true,
-  INVALID_MODEL_OUTPUT: true,
-  MODEL_UNAVAILABLE: true,
-  MODEL_NOT_CONFIGURED: false,
 }
 
 const ADVISOR_ERROR_CODES = Object.keys(RETRYABLE_BY_CODE) as AdvisorErrorCode[]
@@ -1003,7 +969,7 @@ const UNSAFE_MESSAGE_TOKENS = [
   'Error:',
 ] as const
 
-export function isSafeUserFacingMessage(text: string): boolean {
+function isSafeUserFacingMessage(text: string): boolean {
   const trimmed = text.trim()
   if (trimmed === '' || trimmed.length > 300) return false
   // 面向用户的话必须是中文：整段没有汉字时宁可改用本地映射，也不把上游英文原文端给用户

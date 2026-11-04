@@ -151,7 +151,7 @@ function parseHistoryMessage(value: unknown): ChatHistoryMessage | null {
 }
 
 /** 契约 30.2：`data: { messages }`；服务端已按时间升序返回，这里保持原序不再重排 */
-export function parseChatHistoryPage(value: unknown): ChatHistoryPage | null {
+function parseChatHistoryPage(value: unknown): ChatHistoryPage | null {
   const record = asRecord(value)
   if (record === null) return null
   const list = asArray(record['messages'])
