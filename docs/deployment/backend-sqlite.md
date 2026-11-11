@@ -301,3 +301,57 @@ curl -i -sS http://127.0.0.1:8080/api/auth/me | head -3   # 期望 401
 
 - 备份在**同一台机器**。机器整机丢失时备份一起丢；要异地就再加一条 `rsync`/对象存储同步，本阶段不做（5–20 人规模，同机备份已消除绝大多数风险）。
 - 备份成功率只看 `backup.log`，没有告警通道；发现连续失败再考虑接通知。
+
+## 10. V5 更新部署与验收记录（2026-11-04）
+
+> 内容：PR #51（papers CORS + credentials）、PR #52（前端死代码清理）、
+> PR #53（`advisorApi` 聊天请求补 `credentials: 'include'`，修复云端聊天不落库）。
+> 方式：本地构建 → scp 上传 → 重启 → 浏览器自动化验收（CDP 驱动 Edge，在页面上下文
+> 用 `fetch(credentials:'include')` 走完整业务链）。
+
+### 10.1 部署内容
+
+| 组件 | 上传内容 | 说明 |
+| --- | --- | --- |
+| 后端 | `server/dist/src`（只传 src，**不带 dist/data**，避免测试库覆盖生产库） | CORS 白名单加 papers + credentials 头 |
+| 配置 | `/etc/course-platform/backend.env` 追加 `OPENALEX_MAILTO` | papers 检索的礼貌池标识 |
+| 前端 | `dist/`（index-C5XlJW3y.js） | 死代码清理 + 聊天 credentials 修复 |
+
+重启后验证：服务 `active (running)`、`/health` 200、
+papers CORS 预检 `204 + credentials:true + methods:GET,POST,OPTIONS + origin 回显`。
+
+### 10.2 浏览器自动化验收（CDP，2026-11-04）
+
+方法：临时 profile 启动 Edge（`--remote-debugging-port=9222`），CDP `Runtime.evaluate`
+在生产页面上下文执行 `fetch(credentials:'include')`，Cookie 由浏览器管理，等价真实前端行为。
+
+| # | 检查项 | 结果 |
+| --- | --- | --- |
+| 1 | 页面加载 + 前端新版本（index-C5XlJW3y.js） | ✅ |
+| 2 | 注册 → 登录态（me 200，Cookie 生效） | ✅ |
+| 3 | 建项目 | ✅ |
+| 4 | 论文检索真实结果（`source: "openalex"`，5 篇，含标题/年份/期刊/引用数） | ✅ PR #51 |
+| 5 | 云端聊天（v3）返回 `sessionId`/`messageId`（已落库） | ✅ PR #53 |
+| 6 | messages 接口查到 user+assistant 两条 | ✅ |
+| 7 | **刷新页面后历史仍在**（count=2，roles=user,assistant） | ✅ |
+| 8 | 测试数据清理（项目 delete 200） | ✅ |
+
+### 10.3 验收过程中澄清的两个「假 bug」（避免后人重复排查）
+
+1. **`advisor-chat-v1`/`v2` 聊天返回 `sessionId: null` 是设计行为**：只有
+   `promptVersion === 'advisor-chat-v3'`（带 `milestoneContext`）才走持久化分支
+   （`server/src/routes/advisorChat.ts` 内 `if` 包裹）。云端项目前端固定发 v3，
+   本地项目路径不落库。
+2. **对已删除项目发聊天也不会报错**：落库分支 `loadProject` 抛 `PROJECT_NOT_FOUND`
+   被有意静默吞掉（本地项目兼容设计），响应仍是 200 + `sessionId: null`。
+   排查时先用 `/api/projects` 确认项目存在，再看落库。
+
+### 10.4 自动化验收的环境坑（Windows 本机）
+
+- 系统代理会把 `127.0.0.1:9222` 的 CDP 请求转发出去导致连接失败：
+  统一用 `env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY` 运行脚本。
+- Edge 手动重启后 `scp_session` 是**会话 Cookie**，不跨浏览器进程存续；
+  临时 profile 只保留持久数据，重跑需先 `POST /api/auth/login`。
+- `requestId` 必须是**裸 UUID v4**（`/api/*` V3 与 `/api/advisor/*` 都校验），
+  带前缀会 400 `INVALID_INPUT`。
+

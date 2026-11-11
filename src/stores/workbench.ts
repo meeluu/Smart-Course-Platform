@@ -18,8 +18,6 @@ import type {
 } from '@/types/platform'
 import { PROJECT_SCHEMA_VERSION } from '@/types/platform'
 import { TEMPLATES, TOPICS } from '@/data/topics'
-// 论文方向只从这一个入口取：现在返回模板预置内容，接入后端后换实现即可，页面无需改动
-import { generateDirection } from '@/services/papers'
 // 建议请求：适配层负责 HTTP 与契约校验，mvpFallbacks 负责后端不可用时的本地兜底
 import {
   buildAdvisorChatRequest,
@@ -2118,34 +2116,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     return { ok: true, data: result }
   }
 
-  /* ------------------------------------------------------ 论文推荐 */
-
-  function askPaperAi(topic: string) {
-    const project = current.value
-    if (project === undefined) {
-      toast('请先创建项目')
-      return
-    }
-    if (topic.trim() === '') {
-      toast('先描述一下你想了解的方向')
-      return
-    }
-    const curMs = (project.ms.find((m) => m.s === 'cur') || { t: '当前阶段' }).t
-    project.aiPapers.unshift(
-      generateDirection({
-        projectName: project.name,
-        shortName: project.short,
-        currentMilestone: curMs,
-        ask: topic,
-      }),
-    )
-    if (!persistOrRollback(() => project.aiPapers.shift())) {
-      toast('本地存储不可用，检索方向没有保存')
-      return
-    }
-    toast('检索提示词已生成，复制到 GPT 里检索即可')
-  }
-
   /* -------------------------------------------------------- 建议请求流程 */
 
   /** 把未预期异常收敛成界面可用的失败原因：只记类型名，不外泄技术细节 */
@@ -2390,7 +2360,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     // 按稳定 taskId 定位任务，内部复用 sendChat（页面不再使用步骤下标定位）
     askAboutStep,
     sendChat,
-    askPaperAi,
     // v2：项目基本信息与材料（契约 13 / 14）
     updateProjectProfile,
     updateProjectBasicInfo,

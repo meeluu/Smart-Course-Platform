@@ -693,4 +693,17 @@ describe('fetchAdvisorChat：citations 解析与过滤（契约 23.3 / 23.7）',
     if (!result.ok) throw new Error('期望成功结果，但收到了失败结果')
     expect('citations' in result.data).toBe(false)
   })
+
+  it('聊天请求跨源发送时携带 Cookie 会话（credentials: include）', async () => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse(chatBody({ citations: [] })),
+    )
+
+    const result = await fetchAdvisorChat(chatRequest(), { fetchImpl, retry: false })
+
+    if (!result.ok) throw new Error('期望成功结果，但收到了失败结果')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const init = fetchImpl.mock.calls[0]?.[1]
+    expect(init?.credentials).toBe('include')
+  })
 })

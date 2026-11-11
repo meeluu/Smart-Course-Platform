@@ -112,7 +112,6 @@ import type {
   Task,
   UnderstandingBlock,
 } from '@/types/platform'
-import { PROJECT_SCHEMA_VERSION } from '@/types/platform'
 
 /** 导出格式版本：字段增删或语义变化时 +1（与本地 PROJECT_SCHEMA_VERSION 无关） */
 export const PROJECT_EXPORT_SCHEMA_VERSION = 1
@@ -720,9 +719,3 @@ export function serializeLocalProject(input: BuildLocalProjectExportInput): stri
 export function serializeCloudProject(input: BuildCloudProjectExportInput): string {
   return serializeProjectExport(buildCloudProjectExport(input))
 }
-
-/** 供界面提示「这是什么版本的导出文件」 */
-export const PROJECT_EXPORT_SCHEMA_LABEL = `scp-project-export-v${PROJECT_EXPORT_SCHEMA_VERSION}`
-
-/** 本地导出时的结构版本，便于界面同时展示两套版本号 */
-export const LOCAL_PROJECT_SCHEMA_VERSION = PROJECT_SCHEMA_VERSION

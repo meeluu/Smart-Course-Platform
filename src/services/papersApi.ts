@@ -35,9 +35,9 @@ export const PAPERS_SEARCH_PATH = '/api/papers/search'
 /** 契约 29.2：limit 默认 5、最大 10 */
 export const PAPERS_SEARCH_DEFAULT_LIMIT = 5
 export const PAPERS_SEARCH_MAX_LIMIT = 10
-export const PAPERS_SEARCH_MIN_LIMIT = 1
+const PAPERS_SEARCH_MIN_LIMIT = 1
 /** 契约 29.2：query 1–200 字 */
-export const PAPERS_QUERY_MIN_LENGTH = 1
+const PAPERS_QUERY_MIN_LENGTH = 1
 export const PAPERS_QUERY_MAX_LENGTH = 200
 /**
  * 契约 29.1 规则 4 要求 fallback 必须带中文 notice。
@@ -97,7 +97,7 @@ function queryLengthOf(value: string): number {
   return value.length
 }
 
-export function isPapersRequestId(value: string): boolean {
+function isPapersRequestId(value: string): boolean {
   return UUID_PATTERN.test(value)
 }
 

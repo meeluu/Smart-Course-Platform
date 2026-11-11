@@ -39,16 +39,11 @@ import { UNDERSTANDING_BLOCK_ORDER, MATERIAL_TYPES } from '@/domain/materials'
  */
 
 /** 契约 15.0：材料登记与解析 */
-export const MATERIALS_PATH = '/api/materials'
+const MATERIALS_PATH = '/api/materials'
 /** 契约 15.0：材料理解草稿 */
-export const MATERIALS_UNDERSTANDING_PATH = '/api/materials/understanding'
+const MATERIALS_UNDERSTANDING_PATH = '/api/materials/understanding'
 
 const RETRY_DELAY_MS = 1_000
-
-/** 材料接口的 requestId：与建议接口同一套生成规则，单独导出便于测试注入 */
-export function createMaterialRequestId(): string {
-  return createRequestId()
-}
 
 /* ------------------------------------------------------------------ 工具 */
 

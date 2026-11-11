@@ -33,9 +33,9 @@ import type {
   ProgressRecord,
 } from '@/types/platform'
 
-export const MAX_MILESTONE_CONTEXT_TASKS = 50
-export const MAX_MILESTONE_CONTEXT_PROGRESS = 20
-export const MAX_MILESTONE_CONTEXT_EVIDENCE = 20
+const MAX_MILESTONE_CONTEXT_TASKS = 50
+const MAX_MILESTONE_CONTEXT_PROGRESS = 20
+const MAX_MILESTONE_CONTEXT_EVIDENCE = 20
 
 export interface MilestoneContextSource {
   projectId: string

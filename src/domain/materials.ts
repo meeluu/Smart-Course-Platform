@@ -1,9 +1,7 @@
 import type {
   Material,
-  MaterialItem,
   MaterialReadState,
   MaterialSegment,
-  MaterialSourceRef,
   MaterialType,
   Project,
   ProjectProfile,
@@ -36,8 +34,6 @@ import { createId } from '@/domain/progress'
 export const MAX_MATERIAL_NAME_LENGTH = 200
 /** 契约 15.1 / 15.4：单份材料解码后 ≤ 1 MB */
 export const MATERIAL_MAX_BYTES = 1_048_576
-/** 契约 14.2：单段正文 ≤ 2,000 字 */
-export const MAX_SEGMENT_TEXT_LENGTH = 2_000
 /** 契约 15.2：理解请求片段数 ≤ 100 条、合计 ≤ 24,000 字 */
 export const MAX_UNDERSTANDING_SEGMENTS = 100
 export const MAX_UNDERSTANDING_TOTAL_LENGTH = 24_000
@@ -47,16 +43,16 @@ export const MAX_CONFIRMED_SEGMENTS = 20
 export const MAX_CONFIRMED_TOTAL_LENGTH = 8_000
 /** 契约 4.1：confirmedContext ≤ 10 条、每条 ≤ 200 字 */
 export const MAX_CONFIRMED_CONTEXT_ITEMS = 10
-export const MAX_CONFIRMED_CONTEXT_ITEM_LENGTH = 200
+const MAX_CONFIRMED_CONTEXT_ITEM_LENGTH = 200
 
 /** 契约 13.1：项目基本信息上限 */
 export const MAX_PROFILE_TEXT_LENGTH = 300
-export const MAX_PROFILE_RESEARCH_PERIOD_LENGTH = 100
+const MAX_PROFILE_RESEARCH_PERIOD_LENGTH = 100
 export const MAX_PROFILE_MEMBERS = 10
-export const MAX_PROFILE_MEMBER_NAME_LENGTH = 30
+const MAX_PROFILE_MEMBER_NAME_LENGTH = 30
 
 /** 契约 14.3：一条草稿候选 1～300 字 */
-export const MAX_UNDERSTANDING_BLOCK_CONTENT_LENGTH = 300
+const MAX_UNDERSTANDING_BLOCK_CONTENT_LENGTH = 300
 
 /** 契约 14.1 / 15.1：本轮只收 md、txt（不区分大小写） */
 export const MATERIAL_TYPES: readonly MaterialType[] = ['md', 'txt']
@@ -83,11 +79,6 @@ export const UNDERSTANDING_BLOCK_LABEL: Record<UnderstandingBlockKind, string> =
 /** 契约 14.1：`mat_` 前缀，≤ 64；由前端生成，服务端只当不透明字符串 */
 export function createMaterialId(): string {
   return createId('mat')
-}
-
-/** 理解草稿条目的本地 id 前缀（契约只在服务端回 `itemId`，本地 id 由前端维护） */
-export function createUnderstandingBlockId(): string {
-  return createId('ublk')
 }
 
 /* ------------------------------------------------------------------ 工具 */
@@ -159,7 +150,7 @@ export function normalizeProjectProfile(input: unknown): ProjectProfile {
 }
 
 /** 是否所有字段都为空：为空时请求体不带 `projectProfile`（契约 13.2） */
-export function isProjectProfileEmpty(profile: ProjectProfile): boolean {
+function isProjectProfileEmpty(profile: ProjectProfile): boolean {
   return (
     profile.goal === null &&
     profile.expectedOutcome === null &&
@@ -222,13 +213,11 @@ export function buildProjectProfile(profile: ProjectProfile | undefined): Projec
 
 /* ------------------------------------------------------------------ 材料读取 */
 
-/** 契约 14.1：材料元数据（每种材料只保留最新版本） */
-export function materialsOf(project: Project): Material[] {
+function materialsOf(project: Project): Material[] {
   return Array.isArray(project.materialRecords) ? project.materialRecords : []
 }
 
-/** 当前版本、解析成功的材料，按创建时间正序（跨次请求稳定） */
-export function parsedMaterialsOf(project: Project): Material[] {
+function parsedMaterialsOf(project: Project): Material[] {
   return materialsOf(project)
     .filter((material) => material.state === 'parsed')
     .slice()
@@ -265,24 +254,6 @@ export function segmentsOfMaterial(project: Project, materialId: string): Materi
     .filter((segment) => segment.materialId === materialId)
     .slice()
     .sort((a, b) => a.index - b.index)
-}
-
-/** 在某个材料的某个版本里找一条片段（用于回填来源材料名） */
-export function findSegment(
-  project: Project,
-  materialId: string,
-  materialVersion: number,
-  segmentId: string,
-): MaterialSegment | null {
-  const segments = Array.isArray(project.materialSegments) ? project.materialSegments : []
-  return (
-    segments.find(
-      (segment) =>
-        segment.materialId === materialId &&
-        segment.materialVersion === materialVersion &&
-        segment.segmentId === segmentId,
-    ) ?? null
-  )
 }
 
 /** 契约 14.1 备注：材料是否需要重新上传（解析失败，或当前版本没有任何片段） */
@@ -344,22 +315,13 @@ export function blocksOfMaterial(project: Project, materialId: string): Understa
     .sort((a, b) => kindIndex(a.kind) - kindIndex(b.kind) || a.itemId.localeCompare(b.itemId))
 }
 
-export function findUnderstandingBlock(project: Project, blockId: string): UnderstandingBlock | null {
-  return understandingBlocksOf(project).find((block) => block.id === blockId) ?? null
-}
-
-export function isConfirmedBlock(block: UnderstandingBlock): boolean {
+function isConfirmedBlock(block: UnderstandingBlock): boolean {
   return block.status === 'confirmed'
 }
 
 /** 已确认条目（契约 17.2）：只有这一种会进入请求体 */
 export function confirmedBlocksOf(project: Project): UnderstandingBlock[] {
   return understandingBlocksOf(project).filter(isConfirmedBlock)
-}
-
-/** 未确认条目 = 待确认 + 已修改（两者都不是项目事实） */
-export function unconfirmedBlocksOf(project: Project): UnderstandingBlock[] {
-  return understandingBlocksOf(project).filter((block) => block.status !== 'confirmed')
 }
 
 /** 待确认条目：模型刚生成，学生还没动过 */
@@ -383,14 +345,9 @@ export function statusAfterUnconfirm(block: UnderstandingBlock): UnderstandingBl
 }
 
 /** 条目是否仍然有效：材料、版本都对得上（契约 14.5 第 4 条：旧版本引用视为过期） */
-export function isBlockCurrent(project: Project, block: UnderstandingBlock): boolean {
+function isBlockCurrent(project: Project, block: UnderstandingBlock): boolean {
   const material = findMaterial(project, block.materialId)
   return material !== null && material.version === block.materialVersion
-}
-
-/** 去掉失效（材料已删或已升版）的草稿条目 */
-export function dropStaleBlocks(project: Project): UnderstandingBlock[] {
-  return understandingBlocksOf(project).filter((block) => isBlockCurrent(project, block))
 }
 
 /** 契约 14.1 备注：材料的本地读取口径（仅界面展示，不进接口） */
@@ -411,14 +368,6 @@ export function materialReadStates(project: Project): Record<string, MaterialRea
 }
 
 /* ------------------------------------------------ 已确认内容 → 请求字段 */
-
-/** 契约 14.3：`材料名 (第 3-8 行)` 这样的展示 / 提示词来源说明 */
-export function describeBlockSource(ref: MaterialSourceRef): string {
-  if (ref.startLine === ref.endLine) {
-    return `${ref.materialName} (第 ${ref.startLine} 行)`
-  }
-  return `${ref.materialName} (第 ${ref.startLine}-${ref.endLine} 行)`
-}
 
 /**
  * 契约 4.1 / 13.2：`confirmedContext` = 学生已确认的项目事实。
@@ -508,28 +457,10 @@ export function buildConfirmedMaterials(project: Project): ConfirmedMaterial[] {
 
 /* ---------------------------------------------------------------- 旧页面投影 */
 
-/**
- * `Project.materials` 的兼容投影（旧页面读 `{ name, type }`）。
- *
- * v2 的材料白名单只有 md / txt，因此统一投影为「材料」；
- * 旧字段 `materials` 本身保持原样不动，避免旧页面写过的条目被投影覆盖。
- */
-export function deriveMaterialViews(project: Project): MaterialItem[] {
-  return materialsOf(project).map((material) => ({
-    name: material.name,
-    type: '材料' as const,
-  }))
-}
-
 /** 材料文件名是否在本轮白名单内（不区分大小写；契约 14.1 / 15.1） */
 export function materialTypeFromFileName(name: string): MaterialType | null {
   const matched = /\.([a-z0-9]+)$/i.exec(name.trim())
   if (matched === null) return null
   const extension = matched[1].toLowerCase()
   return (MATERIAL_TYPES as readonly string[]).includes(extension) ? (extension as MaterialType) : null
-}
-
-/** 只用于测试与日志的稳定摘要：材料名 + 版本 */
-export function describeMaterial(material: Material): string {
-  return `${material.name} v${material.version}`
 }
