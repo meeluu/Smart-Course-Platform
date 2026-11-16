@@ -1,0 +1,75 @@
+{
+  "contractVersion": "1.0",
+  "requestId": "22222222-2222-4222-8222-222222222222",
+  "projectId": "prj_chlorophyll_demo",
+  "projectRevision": 7,
+  "projectName": "区域海洋表层叶绿素多尺度变化模拟系统",
+  "currentMilestone": "数据获取与云遮挡重建",
+  "confirmedContext": [
+    "项目目标：重建区域表层叶绿素并分析多尺度变化，形成可视化原型",
+    "交付内容：可交互原型与分析报告",
+    "研究区域初步定为东海近岸，最终以缺测率摸底结果为准"
+  ],
+  "tasks": [
+    {
+      "taskId": "tsk_chl_done_0",
+      "title": "明确叶绿素模拟的技术路线",
+      "status": "done",
+      "doneCriteria": "完成统计重建、机器学习和数值模式三条路线的对比，并选定初步路线",
+      "owner": null,
+      "milestone": "选题确认与文献调研",
+      "updatedAt": "2026-09-22T14:20:00+08:00"
+    },
+    {
+      "taskId": "tsk_chl_doing_1",
+      "title": "确定研究区域并验证水色数据可获取性",
+      "status": "doing",
+      "doneCriteria": "确定区域范围，下载一个月样例数据并统计缺测率",
+      "owner": null,
+      "milestone": "数据获取与云遮挡重建",
+      "updatedAt": "2026-09-26T10:40:00+08:00"
+    },
+    {
+      "taskId": "tsk_chl_todo_2",
+      "title": "调研叶绿素多尺度变化的分析框架",
+      "status": "todo",
+      "doneCriteria": "整理3至5篇相关研究，比较季节、年际和趋势尺度的划分方法",
+      "owner": null,
+      "milestone": "选题确认与文献调研",
+      "updatedAt": "2026-09-22T14:20:00+08:00"
+    }
+  ],
+  "evidence": [
+    {
+      "evidenceId": "evd_chl_1",
+      "submissionId": "sub_chl_1",
+      "taskId": "tsk_chl_doing_1",
+      "didWhat": "下载了MODIS-Aqua 2026年7月的L3月合成叶绿素产品，并统计了候选区域的缺测率",
+      "foundWhat": "东海近岸候选区域的月缺测率约为62%，外海一侧约为28%，缺测主要集中在长江口外侧的浑浊带",
+      "stillUnsure": "近岸缺测率较高时，应该先做DINEOF重建，还是把研究区域往外海调整",
+      "author": null,
+      "createdAt": "2026-09-26T10:40:00+08:00"
+    },
+    {
+      "evidenceId": "evd_chl_0",
+      "submissionId": "sub_chl_0",
+      "taskId": "tsk_chl_done_0",
+      "didWhat": "阅读了统计重建、机器学习和数值模式三类方法的代表性文献，并制作了路线对比表",
+      "foundWhat": null,
+      "stillUnsure": null,
+      "author": null,
+      "createdAt": "2026-09-22T14:20:00+08:00"
+    }
+  ],
+  "doubts": [
+    {
+      "doubtId": "dbt_chl_1",
+      "text": "东海近岸缺测率约62%，而且缺测集中在浑浊带：应该先做DINEOF重建，还是把研究区域往外海调整？",
+      "status": "open",
+      "sourceEvidenceId": "evd_chl_1",
+      "createdAt": "2026-09-26T10:40:00+08:00"
+    }
+  ],
+  "promptVersion": "mvp-prompt-v1",
+  "forceRefresh": true
+}
